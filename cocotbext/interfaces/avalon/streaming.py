@@ -1,34 +1,33 @@
 import abc
 import math
 import warnings
-from abc import ABCMeta
 from typing import List, Optional, Set
 
+import cocotb
 from cocotb.binary import BinaryValue
 
-from cocotbext.interfaces.avalon import BaseSynchronousInterface, BaseSynchronousModel
-from cocotbext.interfaces import Signal, ProtocolError, PropertyError
-from cocotbext.interfaces.model import Reaction
-from cocotbext.interfaces.signal import Direction, Control
+import cocotbext.interfaces as ci
+import cocotbext.interfaces.signal as cis
+import cocotbext.interfaces.model as cim
+import cocotbext.interfaces.avalon as cia
 
-
-class StreamingInterface(BaseSynchronousInterface):
+class StreamingInterface(cia.BaseSynchronousInterface):
 
     @classmethod
-    def specification(cls) -> Set[Signal]:
+    def specification(cls) -> Set[cis.Signal]:
         return {
-            Signal('channel', width={x + 1 for x in range(128)}, logical_type=int),
-            Signal(
+            cis.Signal('channel', width={x + 1 for x in range(128)}, logical_type=int),
+            cis.Signal(
                 'data',
                 width={x + 1 for x in range(4096)},
                 logical_type=BinaryValue
             ),
-            Signal('error', width={x + 1 for x in range(256)}, logical_type=int),
-            Signal('empty', width={x + 1 for x in range(5)}, meta=True, logical_type=int),
-            Signal('endofpacket', meta=True),
-            Signal('startofpacket', meta=True),
-            Control('ready', direction=Direction.TO_PRIMARY, max_allowance=8, max_latency=8),
-            Control('valid', precedence=1),
+            cis.Signal('error', width={x + 1 for x in range(256)}, logical_type=int),
+            cis.Signal('empty', width={x + 1 for x in range(5)}, meta=True, logical_type=int),
+            cis.Signal('endofpacket', meta=True),
+            cis.Signal('startofpacket', meta=True),
+            cis.Control('ready', direction=cis.Direction.TO_PRIMARY, max_allowance=8, max_latency=8),
+            cis.Control('valid', precedence=1),
         }
 
     def __init__(self, *args,
@@ -60,7 +59,7 @@ class StreamingInterface(BaseSynchronousInterface):
                 )
                 self._max_channel = 0
             elif not 255 >= max_channel >= 0:
-                raise PropertyError(
+                raise ci.InterfacePropertyError(
                     f"AvalonST spec defines maxChannel as 0-255. "
                     f"{str(self)} maxChannel is {max_channel}"
                 )
@@ -77,7 +76,7 @@ class StreamingInterface(BaseSynchronousInterface):
             if data_bits_per_symbol is None:
                 self._data_bits_per_symbol = 8
             elif not 512 >= data_bits_per_symbol >= 1:
-                raise PropertyError(
+                raise ci.InterfacePropertyError(
                     f"AvalonST spec defines dataBitsPerSymbol as 1-512. "
                     f"{str(self)} dataBitsPerSymbol is {data_bits_per_symbol}"
                 )
@@ -98,7 +97,7 @@ class StreamingInterface(BaseSynchronousInterface):
             if error_descriptor is None:
                 self._error_descriptor = None
             elif len(self.error.handle) != len(error_descriptor):
-                raise PropertyError(
+                raise ci.InterfacePropertyError(
                     f"AvalonST spec requires that error descriptors "
                     f"be provided as list of strings, one for each error bit. "
                     f"{str(self)} provided {error_descriptor}"
@@ -122,7 +121,7 @@ class StreamingInterface(BaseSynchronousInterface):
                 self._ready_latency = ready_latency
 
             if self.ready_latency > self.ready_allowance:
-                raise PropertyError(
+                raise ci.InterfacePropertyError(
                     f"AvalonST spec requires readyLatency <= readyAllowance. "
                     f"{str(self)} readyLatency is {self.ready_latency}, "
                     f"readyAllowance is {self.ready_latency}"
@@ -141,14 +140,14 @@ class StreamingInterface(BaseSynchronousInterface):
             if in_packet_timeout is None:
                 self._in_packet_timeout = 0
             elif in_packet_timeout < 0:
-                raise PropertyError(
+                raise ci.InterfacePropertyError(
                     f"In-packet timeout cannot be negative"
                 )
             else:
                 self._in_packet_timeout = in_packet_timeout
 
             if not (self.startofpacket.instantiated and self.endofpacket.instantiated):
-                raise PropertyError(
+                raise ci.InterfacePropertyError(
                     f"AvalonST spec requires both startofpacket and endofpacket signals"
                     f" to support packets."
                 )
@@ -158,13 +157,13 @@ class StreamingInterface(BaseSynchronousInterface):
                 req_size = math.ceil(math.log(len(self.data.handle) / self.data_bits_per_symbol), 2)
 
                 if not self.empty.instantiated:
-                    raise PropertyError(
+                    raise ci.InterfacePropertyError(
                         f"AvalonST spec requires empty signal for packet interfaces "
                         f"with more than one symbol per word."
                     )
 
                 if len(self.empty.handle) != req_size:
-                    raise PropertyError(
+                    raise ci.InterfacePropertyError(
                         f"AvalonST spec defines empty width as ceil[log_2(<symbols per cycle>)] "
                         f"= {req_size}. {str(self)} empty width is {len(self.empty.handle)}"
                     )
@@ -195,7 +194,7 @@ class StreamingInterface(BaseSynchronousInterface):
         val = data.value.binstr[:-empty] if be else data.value.binstr[empty:]
         vec.assign(val)
         if not vec.is_resolvable:
-            raise ProtocolError(f"Signal ({str(self.data)} is unresolvable.")
+            raise ci.InterfaceProtocolError(f"cis.Signal ({str(self.data)} is unresolvable.")
         return vec
 
     @property
@@ -235,7 +234,7 @@ class StreamingInterface(BaseSynchronousInterface):
         return self._in_packet_timeout
 
 
-class BaseStreamingModel(BaseSynchronousModel, metaclass=ABCMeta):
+class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def __init__(self, itf: StreamingInterface, *args, **kwargs) -> None:
@@ -246,7 +245,7 @@ class BaseStreamingModel(BaseSynchronousModel, metaclass=ABCMeta):
     @property
     def itf(self) -> StreamingInterface: return self._itf
 
-    @Reaction('reset', True)
+    @cim.Reaction('reset', True)
     def reset(self):
         self.in_pkt = False if self.itf.packets else None
 
@@ -259,12 +258,12 @@ class PassiveSinkModel(BaseStreamingModel):
         super().__init__(*args, primary=False, **kwargs)
         self.prev_channel = None
 
-    @Reaction('reset', True)
+    @cim.Reaction('reset', True)
     def reset(self):
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
-    @Reaction('valid', True, force=True)
+    @cim.Reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
 
         channel = self.itf.channel.capture() if self.itf.channel.instantiated else None
@@ -278,17 +277,17 @@ class PassiveSinkModel(BaseStreamingModel):
         if self.itf.packets:
             if sop:
                 if self.in_pkt:
-                    raise ProtocolError(
+                    raise ci.InterfaceProtocolError(
                         f"Duplicate startofpacket signal ({str(self.itf.startofpacket)})"
                     )
 
                 self.in_pkt = True
 
             if not self.in_pkt:
-                raise ProtocolError(f"Attempted transfer outside of packet")
+                raise ci.InterfaceProtocolError(f"Attempted transfer outside of packet")
 
             if self.prev_channel is not None and channel != self.prev_channel:
-                raise ProtocolError(
+                raise ci.InterfaceProtocolError(
                     f"Channel changed within packet ({self.prev_channel}->{channel})"
                 )
 
@@ -324,11 +323,11 @@ class SourceModel(BaseStreamingModel):
 
     # TODO: (redd@) Rewrite w filters
 
-    @Reaction('valid', False, force=False)
+    @cim.Reaction('valid', False, force=False)
     def assert_valid(self) -> None:
         if not self.itf.ready.generated:
             self.itf.valid.drive(True)
 
-    @Reaction('valid', True)
+    @cim.Reaction('valid', True)
     def valid_cycle(self) -> None:
         raise NotImplementedError

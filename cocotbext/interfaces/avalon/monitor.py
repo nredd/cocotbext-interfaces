@@ -1,16 +1,16 @@
-from typing import Callable
 import abc
-from abc import ABCMeta
-from typing import Optional
+from typing import Callable, Optional
 
+import cocotb
 from cocotb.monitors import Monitor
 from cocotb.triggers import RisingEdge
 
-from cocotbext.interfaces.avalon import BaseSynchronousModel
-from cocotbext.interfaces.avalon.streaming import StreamingInterface, PassiveSinkModel
+import cocotbext.interfaces as ci
+import cocotbext.interfaces.avalon as cia
+import cocotbext.interfaces.avalon.streaming as cias
 
 
-class BaseMonitor(Monitor, metaclass=ABCMeta):
+class BaseMonitor(Monitor, metaclass=abc.ABCMeta):
     """
     cocotb-style Monitor implementation for synchronous Avalon interfaces.
     """
@@ -20,7 +20,7 @@ class BaseMonitor(Monitor, metaclass=ABCMeta):
         return str(self.mod)
 
     @abc.abstractmethod
-    def __init__(self, mod: BaseSynchronousModel, callback: Optional[Callable] = None) -> None:
+    def __init__(self, mod: cia.BaseSynchronousModel, callback: Optional[Callable] = None) -> None:
         # TODO: (redd@) self.log
         super().__init__(callback)
         self.mod = mod
@@ -38,5 +38,5 @@ class AvalonST(BaseMonitor):
         """Implementation for AvalonST."""
 
         # Args target Interface instance
-        itf = StreamingInterface(*args, **kwargs)
-        super().__init__(PassiveSinkModel(itf), callback)
+        itf = cias.StreamingInterface(*args, **kwargs)
+        super().__init__(cias.PassiveSinkModel(itf), callback)

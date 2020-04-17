@@ -1,24 +1,32 @@
 import abc
-from abc import ABCMeta
+import enum
 from typing import Optional, Dict, Set
 
+import cocotb
 from cocotb.handle import SimHandleBase
 from cocotb.triggers import Trigger
 
-from cocotbext.interfaces import BaseInterface, Signal, PropertyError, SynchronousEdges
-from cocotbext.interfaces.model import BaseModel
-from cocotbext.interfaces.signal import Control
+import cocotbext.interfaces as ci
+import cocotbext.interfaces.signal as cis
+import cocotbext.interfaces.model as cim
+
+# cis.Signal, cis.Control
+
+class SynchronousEdges(enum.Enum):
+    NONE = enum.auto()
+    DEASSERT = enum.auto()
+    BOTH = enum.auto()
 
 
-class Clock(BaseInterface):
+class Clock(ci.BaseInterface):
     """
     Represents an Avalon Clock interface.
     """
 
     @classmethod
-    def specification(cls) -> Set[Signal]:
+    def specification(cls) -> Set[cis.Signal]:
         return {
-            Signal('clk', required=True)
+            cis.Signal('clk', required=True)
         }
 
     def __init__(self, *args,
@@ -26,7 +34,7 @@ class Clock(BaseInterface):
                  **kwargs) -> None:
         # TODO: (redd@) is associatedDirectClock needed? could be used to specify _clock domains
         if rate is not None and not 2 ** 32 - 1 >= rate >= 0:
-            raise PropertyError(
+            raise ci.InterfacePropertyError(
                 f"{str(self)} spec. defines clockRate as 0-4294967295, was provided {rate}"
             )
 
@@ -40,16 +48,16 @@ class Clock(BaseInterface):
     def rate_known(self) -> bool: return self._rate is not None
 
 
-class Reset(BaseInterface):
+class Reset(ci.BaseInterface):
     """
     Represents an Avalon Reset interface.
     """
 
     @classmethod
-    def specification(cls) -> Set[Signal]:
+    def specification(cls) -> Set[cis.Signal]:
         return {
-            Control('reset', required=True, flow_vals={False}, fix_vals={True}),
-            Control('reset_req', precedence=1),
+            cis.Control('reset', required=True, flow_vals={False}, fix_vals={True}),
+            cis.Control('reset_req', precedence=1),
         }
 
     def __init__(self, *args,
@@ -70,7 +78,7 @@ class Reset(BaseInterface):
     def edges(self) -> SynchronousEdges: return self._edges
 
 
-class BaseSynchronousInterface(BaseInterface, metaclass=ABCMeta):
+class BaseSynchronousInterface(ci.BaseInterface, metaclass=abc.ABCMeta):
     """
     Represents a synchronous Avalon interface, which are defined to have associated
     Avalon Clock, Reset interfaces.
@@ -94,7 +102,7 @@ class BaseSynchronousInterface(BaseInterface, metaclass=ABCMeta):
     def reset(self) -> SimHandleBase: return self._reset.reset
 
 
-class BaseSynchronousModel(BaseModel, metaclass=ABCMeta):
+class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
     """
     Represents a model for synchronous Avalon interfaces, which are defined to have associated
     Avalon Clock, Reset interfaces.

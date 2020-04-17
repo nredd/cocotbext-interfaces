@@ -1,15 +1,16 @@
 import abc
-from abc import ABCMeta
 from typing import Dict
 
+import cocotb
 from cocotb.drivers import Driver
 from cocotb.triggers import RisingEdge
 
-from cocotbext.interfaces.avalon import BaseSynchronousModel
-from cocotbext.interfaces.avalon.streaming import StreamingInterface, SourceModel
+import cocotbext.interfaces as ci
+import cocotbext.interfaces.avalon as cia
+import cocotbext.interfaces.avalon.streaming as cias
 
 
-class BaseDriver(Driver, metaclass=ABCMeta):
+class BaseDriver(Driver, metaclass=abc.ABCMeta):
     """
     cocotb-style Driver implementation for synchronous Avalon interfaces.
     """
@@ -19,7 +20,7 @@ class BaseDriver(Driver, metaclass=ABCMeta):
         return str(self.mod)
 
     @abc.abstractmethod
-    def __init__(self, mod: BaseSynchronousModel) -> None:
+    def __init__(self, mod: cia.BaseSynchronousModel) -> None:
 
         # TODO: (redd@) self.log
         super().__init__()
@@ -45,6 +46,6 @@ class AvalonST(BaseDriver):
         """Implementation for AvalonST."""
 
         # Args target Interface instance
-        itf = StreamingInterface(*args, **kwargs)
-        super().__init__(SourceModel(itf))
+        itf = cias.StreamingInterface(*args, **kwargs)
+        super().__init__(cias.SourceModel(itf))
 

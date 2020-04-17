@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Test to demonstrate functionality of the avalon basic streaming interface"""
 
 import logging
@@ -13,6 +13,7 @@ from cocotb.clock import Clock
 from cocotb.scoreboard import Scoreboard
 from cocotb.generators.bit import wave
 
+import cocotbext.interfaces
 from cocotbext.interfaces.avalon.driver import AvalonST as AvalonSTDriver
 from cocotbext.interfaces.avalon.monitor import AvalonST as AvalonSTMonitor
 

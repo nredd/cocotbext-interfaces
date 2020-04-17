@@ -27,7 +27,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
 
-EXAMPLES := endian_swapper/tests
+EXAMPLES :=
 
 .PHONY: $(EXAMPLES)
 

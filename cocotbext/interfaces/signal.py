@@ -3,14 +3,13 @@ import enum
 import warnings
 from typing import Optional, Type, Union, Set, Iterator, Callable
 
+import cocotb
 from cocotb.binary import BinaryValue
-
 from cocotb.handle import SimHandleBase
 
-from cocotbext.interfaces import PropertyError, ProtocolError
+import cocotbext.interfaces as ci
 
-
-class Direction(enum.Enum):  # TODO: (redd@) rename to primary/secondary
+class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),
     TO_PRIMARY = enum.auto(),
     BIDIRECTIONAL = enum.auto(),
@@ -39,7 +38,7 @@ class Signal(object):
 
         val = self.handle.value
         if not val.is_resolvable:
-            raise ProtocolError(f"Signal ({str(self)}) is unresolvable")
+            raise ci.InterfaceProtocolError(f"Signal ({str(self)}) is unresolvable")
 
         if not self.logic_active_high:
             val.assign(~val.integer & len(self.handle))
@@ -154,7 +153,7 @@ class Signal(object):
     @handle.setter
     def handle(self, val: SimHandleBase):
         if not len(val) in self.widths:
-            raise PropertyError(
+            raise ci.InterfacePropertyError(
                 f"Invalid width ({len(val)}) for {str(val)}"
             )
 

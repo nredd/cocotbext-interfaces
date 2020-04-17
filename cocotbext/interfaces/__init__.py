@@ -1,30 +1,20 @@
-import enum
-from enum import Enum
-from typing import Set, Callable
 import abc
 import logging
 import warnings
-from abc import ABCMeta
-from typing import Optional
+from typing import Set, Callable, Optional
 
-from cocotb import SimLog
+import cocotb
 from cocotb.bus import Bus
 from cocotb.handle import SimHandleBase
-from cocotbext.interfaces.signal import Signal, Control, Direction
 
+from cocotbext.interfaces import signal as cis
 
-class ProtocolError(Exception):
+class InterfaceProtocolError(Exception):
     pass
 
 
-class PropertyError(ValueError):
+class InterfacePropertyError(ValueError):
     pass
-
-
-class SynchronousEdges(Enum):
-    NONE = enum.auto()
-    DEASSERT = enum.auto()
-    BOTH = enum.auto()
 
 
 class Filter(object):
@@ -51,7 +41,8 @@ class Filter(object):
         return f"{self.__class__.__name__}({self.cname})"
 
 
-class BaseInterface(object, metaclass=ABCMeta):
+class BaseInterface(object, metaclass=abc.ABCMeta):
+
 
     def __str__(self):
         return f"{self.__class__.__name__} interface"
@@ -62,7 +53,7 @@ class BaseInterface(object, metaclass=ABCMeta):
     def __contains__(self, item):
         """Used for membership testing of `Signal` items."""
         if hasattr(self, '_signals'):
-            if isinstance(item, Signal):
+            if isinstance(item, cis.Signal):
                 return any([s.name == item.name for s in self.signals])
             elif isinstance(item, str):
                 return any([s.name == item for s in self.signals])
@@ -71,7 +62,7 @@ class BaseInterface(object, metaclass=ABCMeta):
 
     @classmethod
     @abc.abstractmethod
-    def specification(cls) -> Set[Signal]:
+    def specification(cls) -> Set[cis.Signal]:
         """Returns the s specifications for this interface. Should be extended by child class."""
         pass
 
@@ -80,9 +71,11 @@ class BaseInterface(object, metaclass=ABCMeta):
                  entity: SimHandleBase,
                  bus_name: Optional[str] = None,
                  bus_separator: Optional[str] = "_",
-                 log_level: int = logging.INFO  # TODO: (redd@) needed?
-                 ) -> None:
+                 log_level: int = logging.INFO) -> None:
         """Should be extended by child class."""
+
+        self._log = cocotb.SimLog(f"cocotbext.interfaces.{str(self)}", id(self))
+        self.log.setLevel(log_level)
 
         self._filters = set()
         self._specify(self.specification())
@@ -100,18 +93,17 @@ class BaseInterface(object, metaclass=ABCMeta):
                     if f.cname == s.name:
                         s.filter = f
 
-        # TODO: (redd@) Use cocotb.decorators.external
-        self._log = SimLog(f"cocotbext.interfaces.{str(self.__class__.__name__)}")
-        self._log.setLevel(log_level)
-        logging.getLogger('transitions').setLevel(log_level)  # TODO: (redd@) Hook this into self._log
 
     @property
-    def signals(self) -> Set[Signal]:
+    def log(self) -> logging.Logger: return self._log
+
+    @property
+    def signals(self) -> Set[cis.Signal]:
         return self._signals
 
     @property
-    def controls(self) -> Set[Control]:
-        return set(c for c in self.signals if isinstance(c, Control))
+    def controls(self) -> Set[cis.Control]:
+        return set(c for c in self.signals if isinstance(c, cis.Control))
 
     @property
     def pmin(self) -> Optional[int]:
@@ -122,14 +114,14 @@ class BaseInterface(object, metaclass=ABCMeta):
         return max(c.precedence for c in self.controls) if self.controls else None
 
     @property
-    def root(self) -> Set[Control]:
+    def root(self) -> Set[cis.Control]:
         return set(c for c in self.controls if c.precedence == self.pmin)
 
     @property
-    def base(self) -> Optional[Set[Control]]:
+    def base(self) -> Optional[Set[cis.Control]]:
         return set(c for c in self.controls if c.precedence == self.pmax)
 
-    def _specify(self, spec: Set[Signal], precedes: bool = False):
+    def _specify(self, spec: Set[cis.Signal], precedes: bool = False):
         """
         Incorporate specifications into interface.
 
@@ -146,7 +138,7 @@ class BaseInterface(object, metaclass=ABCMeta):
             raise ValueError(f"Duplicate signals specified: {spec}")
 
         # Consider relative precedence for new Controls
-        cspec = set(s for s in spec if isinstance(s, Control))
+        cspec = set(s for s in spec if isinstance(s, cis.Control))
         if cspec:
             offset = max(cspec) if precedes else self.pmax
             for c in (self.controls if precedes else cspec):
@@ -157,7 +149,7 @@ class BaseInterface(object, metaclass=ABCMeta):
             self._signals.add(s)
             setattr(self, s.name, s)
 
-    def _txn(self, d: Optional[Direction] = None) -> Set:
+    def _txn(self, d: Optional[cis.Direction] = None) -> Set:
         """
         Returns names of signals in logical transactions. Optionally filter by direction.
         Args:

@@ -1,14 +1,13 @@
 import abc
-from abc import ABCMeta
-from itertools import groupby
+import itertools
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
+import transitions
 from transitions.extensions import HierarchicalMachine
 from transitions.extensions.states import add_state_features, Tags, Volatile
 
-from cocotbext.interfaces import BaseInterface, ProtocolError
-from cocotbext.interfaces.signal import Control
-
+import cocotbext.interfaces as ci
+import cocotbext.interfaces.signal as cis
 
 class Reaction(object):
     """
@@ -53,7 +52,7 @@ class Reaction(object):
 
 
 @add_state_features(Tags, Volatile)
-class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
+class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
 
     def __str__(self):
@@ -63,7 +62,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
         return self.__str__()
 
     @abc.abstractmethod
-    def __init__(self, itf: BaseInterface, primary: Optional[bool] = None) -> None:
+    def __init__(self, itf: ci.BaseInterface, primary: Optional[bool] = None) -> None:
         """Should be extended by child class."""
 
         self._reactions = set()
@@ -74,6 +73,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
 
         self.primary = primary
 
+        # TODO: (redd@) Override transitions logger?
         HierarchicalMachine.__init__(self,
                                      states=self.nest,
                                      initial='ROOT',
@@ -81,7 +81,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
                                      send_event=True)
 
     @property
-    def itf(self) -> BaseInterface:
+    def itf(self) -> ci.BaseInterface:
         return self._itf
 
     @property
@@ -163,7 +163,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
 
         # TODO: (redd@) Refactor
 
-        def nestify(ctrl: Control, cond: List, infl: List, react: List) -> Dict:
+        def nestify(ctrl: cis.Control, cond: List, infl: List, react: List) -> Dict:
             """
             Returns a nest representing the behavioral [sub-]state space induced by a given Control.
 
@@ -296,7 +296,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
                 ]
             )
 
-        def add_level(bh, controls: Iterable[Control]):
+        def add_level(bh, controls: Iterable[cis.Control]):
             """
             Appends behavior [to an existing self] corresponding to a set of controls along a
             precedence level. As defined, a set of Controls within a precedence level can be
@@ -362,7 +362,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
         # Elaborate!
         bh = node(name='ROOT', tags=['flow'])
         controls = sorted(self.itf.controls, reverse=True)
-        for k, g in groupby(controls, lambda x: x.precedence):
+        for k, g in itertools.groupby(controls, lambda x: x.precedence):
             add_level(bh, g)
 
         # TODO: (redd@) Add callback accepting event data to determine src of context violation
@@ -401,7 +401,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
     def _input(self, txn: Dict) -> None:
         """Buffer logical input transactions."""
         if self.busy:
-            raise ProtocolError(f"{str(self)} cannot ingest logical input if busy")
+            raise ci.InterfaceProtocolError(f"{str(self)} cannot ingest logical input if busy")
 
         if txn.keys() != self.itf._txn(d=self.primary):
             raise ValueError(
@@ -416,7 +416,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
     def _output(self) -> Dict:
         """Returns completed logical output transaction."""
         if self.busy:
-            raise ProtocolError(f"{str(self)} cannot flush logical output if busy")
+            raise ci.InterfaceProtocolError(f"{str(self)} cannot flush logical output if busy")
 
         out = {k: list(v) for k, v in self.buff.items()}
         self._clear()
@@ -427,7 +427,7 @@ class BaseModel(HierarchicalMachine, metaclass=ABCMeta):
         self.advance()
 
         if not (self.get_state(self.state).is_flow or self.get_state(self.state).is_fix):
-            raise ProtocolError(f"Control context invariant was violated")
+            raise ci.InterfaceProtocolError(f"Control context invariant was violated")
 
         # Delete cached values of influences, execute reactions
         for c in self.get_state(self.state)['influences']:

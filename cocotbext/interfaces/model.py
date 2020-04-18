@@ -1,8 +1,10 @@
 import abc
 import itertools
+import functools
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
 import transitions
+import wrapt
 from transitions.extensions import HierarchicalMachine
 from transitions.extensions.states import add_state_features, Tags, Volatile
 
@@ -27,14 +29,11 @@ class Reaction(object):
         self.val = val
         self.force = force
 
-    def __call__(self, fn: Callable, *args, **kwargs):
-        """
-        Stores callback to reaction logic, then submit [this `Reaction` instance] to model.
-        """
-
-        self.fns = [fn]
-        args[0]._add_reaction(self)
-        return fn
+    @wrapt.decorator
+    def __call__(self, wrapped, instance, args, kwargs):
+        self.fns = [wrapped]
+        instance._add_reaction(self)
+        return wrapped(*args, **kwargs)
 
     def __eq__(self, other):
         """

@@ -1,9 +1,11 @@
 import abc
+import functools
 import logging
 import warnings
 from typing import Set, Callable, Optional
 
 import cocotb
+import wrapt
 from cocotb.bus import Bus
 from cocotb.handle import SimHandleBase
 
@@ -25,13 +27,11 @@ class Filter(object):
     def __init__(self, cname: str):
         self.cname = cname
 
-    def __call__(self, fn: Callable, *args, **kwargs):
-        """
-        Store callback to filter logic, then submit [this `Filter` instance] to interface.
-        """
-        self.fn = fn
-        args[0]._add_filter.update(self)
-        return fn
+    @wrapt.decorator
+    def __call__(self, wrapped, instance, args, kwargs):
+        self.fn = wrapped
+        instance._add_filter(self)
+        return wrapped(*args, **kwargs)
 
     def __eq__(self, other):
         if not isinstance(other, Filter): return NotImplemented

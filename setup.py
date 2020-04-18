@@ -6,7 +6,7 @@ setup(
     author='Nicholas Redd',
     author_email="redd@google.com",
     packages = find_namespace_packages(include=['cocotbext.*']),
-    install_requires = ['cocotb', 'transitions'],
+    install_requires = ['cocotb', 'transitions', 'wrapt'],
     python_requires = '>=3.6',
     classifiers = [
         "Programming Language :: Python :: 3",

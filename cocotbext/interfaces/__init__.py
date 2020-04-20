@@ -11,6 +11,12 @@ from cocotb.handle import SimHandleBase
 
 from cocotbext.interfaces import signal as cis
 
+
+# Base logger for module
+_LOGGER = cocotb.SimLog(f"cocotbext.interfaces")
+_LOGGER.setLevel(logging.DEBUG)
+
+
 class InterfaceProtocolError(Exception):
     pass
 
@@ -37,18 +43,24 @@ class Filter(object):
         if not isinstance(other, Filter): return NotImplemented
         return self.cname == other.cname
 
-    def __str__(self):
-        return f"{self.__class__.__name__}({self.cname})"
+    def __repr__(self):
+        return f"<{self.__class__.__name__}(cname={self.cname}, fn={self.fn})>\n"
 
 
 class BaseInterface(object, metaclass=abc.ABCMeta):
 
-
     def __str__(self):
-        return f"{self.__class__.__name__} interface"
+        return f"<{self.family}-{self.__class__.__name__}>"
 
     def __repr__(self):
-        return self.__str__()
+        return f"<{self.__class__.__name__}(\n" \
+               f"family={self.family},\n " \
+               f"signals={repr(self.signals)},\n " \
+               f"floor={str(self.floor)},\n " \
+               f"ceiling={str(self.ceiling)},\n" \
+               f"filters={repr(self.filters)}\n " \
+               f")>\n"
+
 
     def __contains__(self, item):
         """Used for membership testing of `Signal` items."""
@@ -59,6 +71,11 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                 return any([s.name == item for s in self.signals])
 
         return False
+
+    # TODO: (redd@) Rethink how users should index signals
+    def __getitem__(self, key):
+        """Used to look up signals"""
+        return next(x for x in self.signals if x.name == key)
 
     @classmethod
     @abc.abstractmethod
@@ -71,11 +88,14 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                  entity: SimHandleBase,
                  bus_name: Optional[str] = None,
                  bus_separator: Optional[str] = "_",
-                 log_level: int = logging.INFO) -> None:
+                 family: Optional[str] = None,
+                 log_level: Optional[int] = None) -> None:
         """Should be extended by child class."""
 
-        self._log = cocotb.SimLog(f"cocotbext.interfaces.{str(self)}", id(self))
-        self.log.setLevel(log_level)
+        self._family = family.capitalize() if family else None
+
+        if log_level is not None:
+            _LOGGER.setLevel(log_level)
 
         self._filters = set()
         self._specify(self.specification())
@@ -93,9 +113,11 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                     if f.cname == s.name:
                         s.filter = f
 
+        _LOGGER.info(f"New {repr(self)}")
 
     @property
-    def log(self) -> logging.Logger: return self._log
+    def family(self) -> Optional[str]:
+        return self._family
 
     @property
     def signals(self) -> Set[cis.Signal]:
@@ -114,11 +136,11 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         return max(c.precedence for c in self.controls) if self.controls else None
 
     @property
-    def root(self) -> Set[cis.Control]:
+    def floor(self) -> Set[cis.Control]:
         return set(c for c in self.controls if c.precedence == self.pmin)
 
     @property
-    def base(self) -> Optional[Set[cis.Control]]:
+    def ceiling(self) -> Optional[Set[cis.Control]]:
         return set(c for c in self.controls if c.precedence == self.pmax)
 
     def _specify(self, spec: Set[cis.Signal], precedes: bool = False):
@@ -135,19 +157,19 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
             self._signals = set()
 
         if any(s in self for s in spec):
-            raise ValueError(f"Duplicate signals specified: {spec}")
+            raise ValueError(f"Duplicate signals specified: {repr(spec)}")
 
         # Consider relative precedence for new Controls
         cspec = set(s for s in spec if isinstance(s, cis.Control))
         if cspec:
-            offset = max(cspec) if precedes else self.pmax
+            offset = max(cspec) if precedes else (self.pmax if self.pmax else 0)
             for c in (self.controls if precedes else cspec):
                 c.precedence += offset
 
-        # Bind new Signal instances (they are descriptors)
         for s in spec:
             self._signals.add(s)
-            setattr(self, s.name, s)
+
+        _LOGGER.debug(f"Applied: {repr(spec)}")
 
     def _txn(self, d: Optional[cis.Direction] = None) -> Set:
         """
@@ -164,5 +186,6 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
 
     def _add_filter(self, val: Filter) -> None:
         if val in self.filters:
-            warnings.warn(f"Duplicate filter received; overwriting {str(val)}")
+            warnings.warn(f"Duplicate filter received; overwriting {repr(val)}")
         self._filters.add(val)
+        _LOGGER.debug(f"Applied: {repr(val)}")

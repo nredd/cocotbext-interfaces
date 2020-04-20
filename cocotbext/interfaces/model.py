@@ -1,8 +1,10 @@
 import abc
-import itertools
 import functools
+import itertools
+import logging
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
+import cocotb
 import transitions
 import wrapt
 from transitions.extensions import HierarchicalMachine
@@ -10,6 +12,8 @@ from transitions.extensions.states import add_state_features, Tags, Volatile
 
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.signal as cis
+
+_LOGGER = cocotb.SimLog(f"cocotbext.interfaces.model")
 
 class Reaction(object):
     """
@@ -46,8 +50,12 @@ class Reaction(object):
             return NotImplemented
         return self.cname == other.cname and self.val == other.val and self.force == other.force
 
-    def __str__(self):
-        return f"{self.__class__.__name__}({self.cname}, {self.val}, {self.force})"
+    def __repr__(self):
+        return f"\n<{self.__class__.__name__}(\n" \
+               f"cname={self.cname},\n " \
+               f"fns={self.fns}, \n" \
+               f"force={self.force}\n" \
+               f")>\n"
 
 
 @add_state_features(Tags, Volatile)
@@ -55,10 +63,15 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
 
     def __str__(self):
-        return f"{self.__class__.__name__}"
+        return f"<{str(self.itf)}-{self.__class__.__name__}>"
 
     def __repr__(self):
-        return self.__str__()
+        return f"<{self.__class__.__name__}(\n" \
+               f"itf={repr(self.itf)},\n " \
+               f"primary={self.primary},\n " \
+               f"reactions={repr(self.reactions)},\n " \
+               f"nest={self.nest}\n " \
+               f")>\n"
 
     @abc.abstractmethod
     def __init__(self, itf: ci.BaseInterface, primary: Optional[bool] = None) -> None:
@@ -79,6 +92,8 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                                      queued=True,
                                      send_event=True)
 
+        _LOGGER.info(f"New {repr(self)}")
+
     @property
     def itf(self) -> ci.BaseInterface:
         return self._itf
@@ -95,6 +110,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
         else:
             self.reactions.add(val)
 
+    # TODO: (redd@) Add more logging here
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
     @property
     def nest(self) -> Dict:
@@ -120,14 +136,14 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
             n = {
                 'name': name,
-                'tags': tags if tags else [],
-                'children': children if children else [],
-                'on_enter': on_enter if on_enter else [],
-                'on_exit': on_exit if on_exit else [],
-                'transitions': transitions if transitions else [],
-                'conditions': conditions if conditions else [],
-                'influences': influences if influences else [],
-                'reactions': reactions if reactions else []
+                'tags': tags if tags is not None else [],
+                'children': children if children is not None else [],
+                'on_enter': on_enter if on_enter is not None  else [],
+                'on_exit': on_exit if on_exit is not None else [],
+                'transitions': transitions if transitions is not None else [],
+                'conditions': conditions if conditions is not None else [],
+                'influences': influences if influences is not None else [],
+                'reactions': reactions if reactions is not None  else []
             }
 
             if initial:
@@ -314,6 +330,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     (r for r in self.reactions if r.cname == c.name and r.force),
                     None)
                 if c.instantiated:
+                    cond[c.name] = {}
                     cond[c.name]['fix'] = lambda: c.capture() in c.fix_vals
                     cond[c.name]['flow'] = lambda: c.capture() in c.flow_vals
                 elif match is not None:
@@ -336,6 +353,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             # Elaborate behavior of instantiated Controls, if any
             if cond:
                 for f in flatten(get_flowers(bh)):
+
                     f['tags'].remove('flow')
                     f['initial'] = 'INIT'
                     f['children'] = [node(name='INIT')]
@@ -396,6 +414,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
     def _clear(self) -> None:
         [v.clear() for v in self.buff.values()]
         self.busy = None
+        _LOGGER.debug(f"{str(self)} buffer cleared")
 
     def _input(self, txn: Dict) -> None:
         """Buffer logical input transactions."""
@@ -411,6 +430,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             self.buff[k].extendleft(v)
 
         self.busy = True
+        _LOGGER.debug(f"{str(self)} buffered input: {txn}")
 
     def _output(self) -> Dict:
         """Returns completed logical output transaction."""
@@ -419,10 +439,12 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
         out = {k: list(v) for k, v in self.buff.items()}
         self._clear()
+        _LOGGER.debug(f"{str(self)} buffered output: {out}")
         return out
 
     def _event_loop(self) -> None:
         """Main event loop for behavioral models."""
+        _LOGGER.debug(f"{str(self)} looping...")
         self.advance()
 
         if not (self.get_state(self.state).is_flow or self.get_state(self.state).is_fix):
@@ -434,3 +456,5 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
         for fn in self.get_state(self.state)['reactions']:
             fn()
+
+        _LOGGER.debug(f"{str(self)} looped!")

@@ -16,14 +16,14 @@ class StreamingInterface(cia.BaseSynchronousInterface):
     @classmethod
     def specification(cls) -> Set[cis.Signal]:
         return {
-            cis.Signal('channel', width={x + 1 for x in range(128)}, logical_type=int),
+            cis.Signal('channel', widths={x + 1 for x in range(128)}, logical_type=int),
             cis.Signal(
                 'data',
-                width={x + 1 for x in range(4096)},
+                widths={x + 1 for x in range(4096)},
                 logical_type=BinaryValue
             ),
-            cis.Signal('error', width={x + 1 for x in range(256)}, logical_type=int),
-            cis.Signal('empty', width={x + 1 for x in range(5)}, meta=True, logical_type=int),
+            cis.Signal('error', widths={x + 1 for x in range(256)}, logical_type=int),
+            cis.Signal('empty', widths={x + 1 for x in range(5)}, meta=True, logical_type=int),
             cis.Signal('endofpacket', meta=True),
             cis.Signal('startofpacket', meta=True),
             cis.Control('ready', direction=cis.Direction.TO_PRIMARY, max_allowance=8, max_latency=8),
@@ -45,13 +45,14 @@ class StreamingInterface(cia.BaseSynchronousInterface):
 
         # TODO: (redd@) Add ready, valid controllers
         # TODO: (redd@) Drive defaults to each signal
+        # TODO: (redd@) Log properties below
         # TODO: (redd@) Add, implement use_empty attribute
         # If any packet signals defined, assume packet support
-        self._packets = self.empty.instantiated or \
-                        self.startofpacket.instantiated or \
-                        self.endofpacket.instantiated
+        self._packets = self['empty'].instantiated or \
+                        self['startofpacket'].instantiated or \
+                        self['endofpacket'].instantiated
 
-        if self.channel.instantiated:
+        if self['channel'].instantiated:
             if max_channel is None:
                 warnings.warn(
                     f"Channel signal instantiated without providing maxChannel, "
@@ -72,7 +73,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
                 )
             self._max_channel = None
 
-        if self.data.instantiated:
+        if self['data'].instantiated:
             if data_bits_per_symbol is None:
                 self._data_bits_per_symbol = 8
             elif not 512 >= data_bits_per_symbol >= 1:
@@ -93,10 +94,10 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             if first_symbol_in_higher_order_bits is not None:
                 warnings.warn(f"firstSymbolInHighOrderBits provided without instantiated Data signal")
 
-        if self.error.instantiated:
+        if self['error'].instantiated:
             if error_descriptor is None:
                 self._error_descriptor = None
-            elif len(self.error.handle) != len(error_descriptor):
+            elif len(self['error'].handle) != len(error_descriptor):
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec requires that error descriptors "
                     f"be provided as list of strings, one for each error bit. "
@@ -109,7 +110,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
                 warnings.warn(f"errorDescriptor provided without instantiated Error signal")
             self._error_descriptor = None
 
-        if self.ready.instantiated:
+        if self['ready'].instantiated:
             if ready_allowance is None:
                 self._ready_allowance = 0
             else:
@@ -126,8 +127,8 @@ class StreamingInterface(cia.BaseSynchronousInterface):
                     f"{str(self)} readyLatency is {self.ready_latency}, "
                     f"readyAllowance is {self.ready_latency}"
                 )
-            self.ready.allowance = self.ready_allowance
-            self.ready.latency = self.ready_latency
+            self['ready'].allowance = self.ready_allowance
+            self['ready'].latency = self.ready_latency
         else:
             if ready_latency is not None:
                 warnings.warn(f"readyLatency provided without instantiated ready signal")
@@ -146,26 +147,26 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             else:
                 self._in_packet_timeout = in_packet_timeout
 
-            if not (self.startofpacket.instantiated and self.endofpacket.instantiated):
+            if not (self['startofpacket'].instantiated and self['endofpacket'].instantiated):
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec requires both startofpacket and endofpacket signals"
                     f" to support packets."
                 )
 
             # If more than one symbol per word, empty signal required
-            if len(self.data.handle) > self.data_bits_per_symbol:
-                req_size = math.ceil(math.log(len(self.data.handle) / self.data_bits_per_symbol), 2)
+            if len(self['data'].handle) > self.data_bits_per_symbol:
+                req_size = math.ceil(math.log(len(self['data'].handle) / self.data_bits_per_symbol), 2)
 
-                if not self.empty.instantiated:
+                if not self['empty'].instantiated:
                     raise ci.InterfacePropertyError(
                         f"AvalonST spec requires empty signal for packet interfaces "
                         f"with more than one symbol per word."
                     )
 
-                if len(self.empty.handle) != req_size:
+                if len(self['empty'].handle) != req_size:
                     raise ci.InterfacePropertyError(
                         f"AvalonST spec defines empty width as ceil[log_2(<symbols per cycle>)] "
-                        f"= {req_size}. {str(self)} empty width is {len(self.empty.handle)}"
+                        f"= {req_size}. {str(self)} empty width is {len(self['empty'].handle)}"
                     )
 
             if empty_within_packet is None:
@@ -194,7 +195,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
         val = data.value.binstr[:-empty] if be else data.value.binstr[empty:]
         vec.assign(val)
         if not vec.is_resolvable:
-            raise ci.InterfaceProtocolError(f"cis.Signal ({str(self.data)} is unresolvable.")
+            raise ci.InterfaceProtocolError(f"cis.Signal ({str(self['data'])} is unresolvable.")
         return vec
 
     @property
@@ -238,9 +239,9 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def __init__(self, itf: StreamingInterface, *args, **kwargs) -> None:
-        self.in_pkt = False if self.itf.packets else None
         # TODO: (redd@) Add in_packet_timeout logic
         super().__init__(itf, *args, **kwargs)
+        self.in_pkt = False if self.itf.packets else None
 
     @property
     def itf(self) -> StreamingInterface: return self._itf
@@ -266,19 +267,19 @@ class PassiveSinkModel(BaseStreamingModel):
     @cim.Reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
 
-        channel = self.itf.channel.capture() if self.itf.channel.instantiated else None
-        data = self.itf.data.capture() if self.itf.data.instantiated else None
-        empty = self.itf.empty.capture() if self.itf.empty.instantiated else None
-        error = self.itf.error.capture() if self.itf.error.instantiated else None
-        sop = self.itf.startofpacket.capture() if self.itf.startofpacket.instantiated else None
-        eop = self.itf.endofpacket.capture() if self.itf.endofpacket.instantiated else None
+        channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
+        data = self.itf['data'].capture() if self.itf['data'].instantiated else None
+        empty = self.itf['empty'].capture() if self.itf['empty'].instantiated else None
+        error = self.itf['error'].capture() if self.itf['error'].instantiated else None
+        sop = self.itf['startofpacket'].capture() if self.itf['startofpacket'].instantiated else None
+        eop = self.itf['endofpacket'].capture() if self.itf['endofpacket'].instantiated else None
 
         # Packet signal checks
         if self.itf.packets:
             if sop:
                 if self.in_pkt:
                     raise ci.InterfaceProtocolError(
-                        f"Duplicate startofpacket signal ({str(self.itf.startofpacket)})"
+                        f"Duplicate startofpacket signal ({str(self.itf['startofpacket'])})"
                     )
 
                 self.in_pkt = True
@@ -325,8 +326,8 @@ class SourceModel(BaseStreamingModel):
 
     @cim.Reaction('valid', False, force=False)
     def assert_valid(self) -> None:
-        if not self.itf.ready.generated:
-            self.itf.valid.drive(True)
+        if not self.itf['ready'].generated:
+            self.itf['valid'].drive(True)
 
     @cim.Reaction('valid', True)
     def valid_cycle(self) -> None:

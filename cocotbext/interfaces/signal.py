@@ -9,6 +9,8 @@ from cocotb.handle import SimHandleBase
 
 import cocotbext.interfaces as ci
 
+_LOGGER = cocotb.SimLog(f"cocotbext.interfaces.signal")
+
 class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),
     TO_PRIMARY = enum.auto(),
@@ -29,10 +31,26 @@ class Signal(object):
     # allowed types for logical_type pulled from handle.ModifiableObject
     _allowed = Union[bool, int, BinaryValue]
 
+
     def __str__(self):
-        return self.name
+        return f"<{self.__class__.__name__}({self.name})>"
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}(\n" \
+               f"name={self.name},\n " \
+               f"required={self.required},\n " \
+               f"instantiated={self.instantiated},\n " \
+               f"active-high={self.logic_active_high},\n " \
+               f"widths={self.widths},\n " \
+               f"direction={self.direction},\n " \
+               f"meta={self.meta},\n " \
+               f"logical-type={self.logical_type},\n " \
+               f"handle={self.handle},\n " \
+               f"filter={self.filter}\n " \
+               f")>\n"
 
     def capture(self) -> _allowed:
+
         if not self.instantiated:
             raise AttributeError(f"Signal ({str(self)}) not instantiated")
 
@@ -45,6 +63,8 @@ class Signal(object):
 
         if self.filter is not None:
             self.filter(val)
+
+        _LOGGER.debug(f"{str(self)} captured sample: {repr(val)}")
 
         if self.logical_type == int:
             return val.integer
@@ -72,6 +92,7 @@ class Signal(object):
                 val = ~val & len(self.handle)
 
         self.handle <= (val if self.logical_type != bool else int(val))
+        _LOGGER.debug(f"{str(self)} driven to: {repr(val)}")
 
     def __init__(self,
                  name: str, *args,
@@ -88,13 +109,14 @@ class Signal(object):
             default_logical_val: assumed to be the equivalent of logical 0/low on all wires
         """
 
+
         if not name:
             raise ValueError(f"Signal names must be non-empty")
 
-        if any(w < 1 for w in widths):
-            raise ValueError(f"Signal ({name}) widths must be positive")
         if not widths:
             widths = {1}
+        if any(w < 1 for w in widths):
+            raise ValueError(f"Signal ({name}) widths must be positive")
 
         # TODO: (redd@) move this to itf.__init__
         if logic_active_high and name.endswith('_n'):
@@ -111,6 +133,9 @@ class Signal(object):
         self._logical_type = logical_type
         self._handle = None
         self._filter = None
+
+        _LOGGER.info(f"New {repr(self)}")
+
 
     # Read-only
     @property
@@ -159,6 +184,8 @@ class Signal(object):
 
         self._handle = val
 
+        _LOGGER.debug(f"Set handle: {repr(val)}")
+
     @property
     def filter(self):
         return self._filter
@@ -167,6 +194,8 @@ class Signal(object):
     def filter(self, val: Callable):
         # TODO: (redd@) Validation
         self._filter = val
+
+        _LOGGER.debug(f"Set filter: {repr(val)}")
 
 
 @functools.total_ordering
@@ -181,10 +210,31 @@ class Control(Signal):
     precedence are denoted *flow* states--otherwise, denoted *fixed*.
     """
 
+    def __repr__(self):
+        return f"<{self.__class__.__name__}(\n" \
+               f"name={self.name},\n " \
+               f"required={self.required},\n " \
+               f"instantiated={self.instantiated},\n " \
+               f"active-high={self.logic_active_high},\n " \
+               f"widths={self.widths},\n " \
+               f"direction={self.direction},\n " \
+               f"meta={self.meta},\n " \
+               f"logical-type={self.logical_type},\n " \
+               f"handle={self.handle},\n " \
+               f"filter={self.filter}\n, " \
+               f"allowance={self.allowance}\n, " \
+               f"latency={self.latency}\n, " \
+               f"precedence={self.precedence}\n, " \
+               f"generated={self.generated}\n " \
+               f")>\n"
+
     def __eq__(self, other):
         if not isinstance(other, Control):
             return NotImplemented
         return self.precedence == other.precedence
+
+    def __hash__(self):
+        return self.precedence
 
     def __lt__(self, other):
         if not isinstance(other, Control):
@@ -224,13 +274,16 @@ class Control(Signal):
         elif max_latency < 0:
             raise ValueError(f"Latency cannot be negative")
 
-        self.allowance = 0
-        self.latency = 0
-        self.precedence = precedence
+        self._max_allowance = max_allowance
+        self._max_latency = max_latency
 
         self._generator = None
         self._flow_vals = flow_vals if flow_vals else {True}
         self._fix_vals = fix_vals if fix_vals else {False}
+
+        self.allowance = 0
+        self.latency = 0
+        self.precedence = precedence
 
         # Control signals are meta by default; they aren't included in logical transactions
         super().__init__(*args, meta=True, **kwargs)
@@ -261,9 +314,10 @@ class Control(Signal):
 
     @allowance.setter
     def allowance(self, val: int):
-        if val < 0:
-            raise ValueError(f"Allowance cannot be negative")
+        if not self._max_allowance >= val >= 0:
+            raise ValueError(f"Outside defined range")
         self._allowance = val
+        _LOGGER.debug(f"{str(self)} set allowance: {val}")
 
     @property
     def latency(self):
@@ -271,9 +325,10 @@ class Control(Signal):
 
     @latency.setter
     def latency(self, val: int):
-        if val < 0:
-            raise ValueError(f"Latency cannot be negative")
+        if not self._max_latency >= val >= 0:
+            raise ValueError(f"Outside defined range")
         self._latency = val
+        _LOGGER.debug(f"{str(self)} set latency: {val}")
 
     @property
     def precedence(self):
@@ -284,6 +339,7 @@ class Control(Signal):
         if val < 0:
             raise ValueError(f"Precedence cannot be negative")
         self._precedence = val
+        _LOGGER.debug(f"{str(self)} set precedence: {val}")
 
     @property
     def generator(self):
@@ -295,6 +351,7 @@ class Control(Signal):
             raise AttributeError(f"Cannot manipulate non-instantiated Control signal")
         self._generator = val
         self.clear()
+        _LOGGER.debug(f"{str(self)} set generator: {repr(val)}")
 
     def next(self) -> bool:
         try:
@@ -302,4 +359,3 @@ class Control(Signal):
         except Exception as e:
             raise e  # TODO: (redd@) Do this better
 
-    # TODO: (redd@) Extend __str__

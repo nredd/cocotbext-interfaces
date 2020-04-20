@@ -87,19 +87,18 @@ class BaseSynchronousInterface(ci.BaseInterface, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def __init__(self, entity, *args, **kwargs) -> None:
         # TODO: (redd@) rate, edges args
+        super().__init__(entity, *args, family='avalon', **kwargs)
 
-        self._clock = Clock(entity, log_level=self._log.level)
-        self._reset = Reset(entity, clock=self._clock, log_level=self._log.level)
+        self._clock = Clock(entity,  family='avalon', log_level=self.log.level)
+        self._reset = Reset(entity, clock=self._clock,  family='avalon', log_level=self.log.level)
         self._specify(self._clock.signals)
         self._specify(self._reset.signals)
 
-        super().__init__(entity, *args, **kwargs)
 
     @property
-    def clock(self) -> SimHandleBase: return self._clock.clk
-
+    def clock(self) -> SimHandleBase: return self._clock['clk']
     @property
-    def reset(self) -> SimHandleBase: return self._reset.reset
+    def reset(self) -> SimHandleBase: return self._reset['reset']
 
 
 class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):

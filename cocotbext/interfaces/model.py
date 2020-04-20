@@ -83,7 +83,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
         self._buff = {}
         self.busy = None
 
-        self.primary = primary
+        self._primary = primary
 
         # TODO: (redd@) Override transitions logger?
         HierarchicalMachine.__init__(self,
@@ -109,8 +109,9 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             next(iter(self.reactions)).fns.extend(val.fns)
         else:
             self.reactions.add(val)
+        _LOGGER.debug(f"{str(self)} applied: {repr(val)}")
 
-    # TODO: (redd@) Add more logging here
+    # TODO: (redd@) cache this after init
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
     @property
     def nest(self) -> Dict:

@@ -169,7 +169,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         for s in spec:
             self._signals.add(s)
 
-        _LOGGER.debug(f"Applied: {repr(spec)}")
+        _LOGGER.debug(f"{str(self)} applied: {repr(spec)}")
 
     def _txn(self, d: Optional[cis.Direction] = None) -> Set:
         """
@@ -188,4 +188,4 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         if val in self.filters:
             warnings.warn(f"Duplicate filter received; overwriting {repr(val)}")
         self._filters.add(val)
-        _LOGGER.debug(f"Applied: {repr(val)}")
+        _LOGGER.debug(f"{str(self)} applied: {repr(val)}")

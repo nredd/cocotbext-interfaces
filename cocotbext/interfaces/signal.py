@@ -184,7 +184,7 @@ class Signal(object):
 
         self._handle = val
 
-        _LOGGER.debug(f"Set handle: {repr(val)}")
+        _LOGGER.debug(f"{str(self)} set handle: {repr(val)}")
 
     @property
     def filter(self):
@@ -195,7 +195,7 @@ class Signal(object):
         # TODO: (redd@) Validation
         self._filter = val
 
-        _LOGGER.debug(f"Set filter: {repr(val)}")
+        _LOGGER.debug(f"{str(self)} set filter: {repr(val)}")
 
 
 @functools.total_ordering
@@ -269,6 +269,9 @@ class Control(Signal):
             fix_vals: Optional[Set[bool]] = None,
             **kwargs):
 
+        # Control signals are meta by default; they aren't included in logical transactions
+        super().__init__(*args, meta=True, **kwargs)
+
         if max_allowance < 0:
             raise ValueError(f"Allowance cannot be negative")
         elif max_latency < 0:
@@ -285,8 +288,6 @@ class Control(Signal):
         self.latency = 0
         self.precedence = precedence
 
-        # Control signals are meta by default; they aren't included in logical transactions
-        super().__init__(*args, meta=True, **kwargs)
 
         if any(w > 1 for w in self.widths) or self.logical_type != bool:
             raise NotImplementedError(

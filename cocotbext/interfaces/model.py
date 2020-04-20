@@ -293,7 +293,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     conditions=cond
                 )
 
-            return node(
+            n = node(
                 name=ctrl.name.upper(),
                 conditions=cond,
                 reactions=react,
@@ -310,6 +310,8 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     ['advance', ['INIT', 'FLW'], 'FXD', cond + [is_fix]],
                 ]
             )
+            _LOGGER.debug(f"New control-nest: {n}")
+            return n
 
         def add_level(bh, controls: Iterable[cis.Control]):
             """
@@ -323,9 +325,12 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                 controls: List of Controls representing a single precedence level.
             """
 
+            _LOGGER.debug(f"Adding control-level: {str(controls)}")
+
             # Control-nest's influences are all other instantiated Controls along/above its precedence level
             cond = {}
             for c in controls:
+                _LOGGER.debug(f"{str(self)} preprocessing: {str(c)}")
                 match = next(
                     (r for r in self.reactions if r.cname == c.name and r.force),
                     None)
@@ -333,8 +338,8 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     cond[c.name] = {}
                     cond[c.name]['fix'] = lambda: c.capture() in c.fix_vals
                     cond[c.name]['flow'] = lambda: c.capture() in c.flow_vals
-                elif match is not None:
-                    # Forced reactions create 'virtual' precedence levels
+                elif match is not None: # Forced reactions create 'virtual' precedence levels
+                    _LOGGER.debug(f"{str(self)} inserting forced reaction: {repr(match)}")
                     for f in flatten(get_flowers(bh)):
                         f['tags'].remove('flow')
                         f['initial'] = c.name.upper()
@@ -350,10 +355,9 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                         f['transitions'] = []
                         f['on_enter'] = []
 
-            # Elaborate behavior of instantiated Controls, if any
-            if cond:
+            if cond: # Elaborate behavior of instantiated Controls, if any
                 for f in flatten(get_flowers(bh)):
-
+                    _LOGGER.debug(f"{str(self)} adding to flower: {f.items()}")
                     f['tags'].remove('flow')
                     f['initial'] = 'INIT'
                     f['children'] = [node(name='INIT')]

@@ -52,11 +52,7 @@ class Reaction(object):
         return self.cname == other.cname and self.val == other.val and self.force == other.force
 
     def __repr__(self):
-        return f"\n<{self.__class__.__name__}(\n" \
-               f"cname={self.cname},\n " \
-               f"fns={self.fns}, \n" \
-               f"force={self.force}\n" \
-               f")>\n"
+        return f"<{self.__class__.__name__}(cname={self.cname},fns={self.fns},force={self.force})>"
 
 
 @add_state_features(Tags, Volatile)
@@ -67,12 +63,8 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
         return f"<{str(self.itf)}-{self.__class__.__name__}>"
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}(\n" \
-               f"itf={str(self.itf)},\n " \
-               f"primary={self.primary},\n " \
-               f"reactions={repr(self.reactions)},\n " \
-               f"nest={self._elaborated.items()}\n " \
-               f")>\n"
+        return f"<{self.__class__.__name__}(itf={str(self.itf)},primary={self.primary}," \
+               f"reactions={repr(self.reactions)}, nest={self._elaborated.items()})>"
 
     @abc.abstractmethod
     def __init__(self, itf: ci.BaseInterface, primary: Optional[bool] = None) -> None:

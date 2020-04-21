@@ -44,7 +44,7 @@ class Filter(object):
         return self.cname == other.cname
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}(cname={self.cname}, fn={self.fn})>\n"
+        return f"<{self.__class__.__name__}(cname={self.cname},fn={self.fn})>"
 
 
 class BaseInterface(object, metaclass=abc.ABCMeta):
@@ -53,13 +53,9 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         return f"<{self.family}-{self.__class__.__name__}>"
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}(\n" \
-               f"family={self.family},\n " \
-               f"signals={repr(self.signals)},\n " \
-               f"floor={str(self.floor)},\n " \
-               f"ceiling={str(self.ceiling)},\n" \
-               f"filters={repr(self.filters)}\n " \
-               f")>\n"
+        return f"<{self.__class__.__name__}(family={self.family},signals={repr(self.signals)}," \
+               f"floor={str(self.floor)}, ceiling={str(self.ceiling)}," \
+               f"filters={repr(self.filters)})>"
 
 
     def __contains__(self, item):

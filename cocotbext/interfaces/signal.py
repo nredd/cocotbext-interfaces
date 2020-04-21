@@ -36,18 +36,11 @@ class Signal(object):
         return f"<{self.__class__.__name__}({self.name})>"
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}(\n" \
-               f"name={self.name},\n " \
-               f"required={self.required},\n " \
-               f"instantiated={self.instantiated},\n " \
-               f"active-high={self.logic_active_high},\n " \
-               f"widths={self.widths},\n " \
-               f"direction={self.direction},\n " \
-               f"meta={self.meta},\n " \
-               f"logical-type={str(self.logical_type)},\n " \
-               f"handle={str(self.handle)},\n " \
-               f"filter={self.filter}\n " \
-               f")>\n"
+        return f"<{self.__class__.__name__}(name={self.name},required={self.required}," \
+               f"instantiated={self.instantiated},active-high={self.logic_active_high}," \
+               f"widths={self.widths},direction={self.direction},meta={self.meta}," \
+               f"logical-type={str(self.logical_type)},handle={str(self.handle)}," \
+               f"filter={self.filter})>"
 
     def capture(self) -> _allowed:
 

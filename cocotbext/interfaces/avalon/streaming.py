@@ -1,15 +1,16 @@
 import abc
 import math
 import warnings
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Callable
 
 import cocotb
 from cocotb.binary import BinaryValue
 
 import cocotbext.interfaces as ci
-import cocotbext.interfaces.signal as cis
-import cocotbext.interfaces.model as cim
+import cocotbext.interfaces.adapters as ciad
 import cocotbext.interfaces.avalon as cia
+import cocotbext.interfaces.model as cim
+import cocotbext.interfaces.signal as cis
 
 class StreamingInterface(cia.BaseSynchronousInterface):
 
@@ -317,6 +318,16 @@ class PassiveSinkModel(BaseStreamingModel):
             self.busy = False
 
 
+class StreamingMonitor(ciad.BaseMonitor):
+
+    def __init__(self, *args, callback: Optional[Callable] = None, **kwargs) -> None:
+        """Implementation for AvalonST."""
+
+        # Args target Interface instance
+        itf = StreamingInterface(*args, **kwargs)
+        super().__init__(PassiveSinkModel(itf), callback)
+
+
 class SourceModel(BaseStreamingModel):
 
     def __init__(self, *args, **kwargs) -> None:
@@ -332,3 +343,15 @@ class SourceModel(BaseStreamingModel):
     @cim.Reaction('valid', True)
     def valid_cycle(self) -> None:
         raise NotImplementedError
+
+
+class StreamingDriver(ciad.BaseDriver):
+
+    def __init__(self, *args, **kwargs) -> None:
+        """Implementation for AvalonST."""
+
+        # Args target Interface instance
+        itf = StreamingInterface(*args, **kwargs)
+        super().__init__(SourceModel(itf))
+
+

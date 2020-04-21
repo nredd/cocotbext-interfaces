@@ -18,7 +18,7 @@ import cocotbext.interfaces.signal as cis
 
 # TODO: (redd@) Refactor logger configs
 _LOG = cocotb.SimLog(f"cocotbext.interfaces.model")
-transitions.core._LOGGER.setLevel(logging.INFO)
+transitions.core._LOGGER.setLevel(logging.WARNING)
 transitions.core._LOGGER.addHandler(logging.StreamHandler(sys.stdout))
 
 
@@ -124,7 +124,7 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         )
 
         # TODO: (redd@) make this prettier; default file location?
-        self.get_graph().draw('my_state_diagram.png', prog='dot')
+        # self.get_graph().draw('my_state_diagram.png', prog='dot')
         _LOG.info(f"New {repr(self)}")
 
     @property

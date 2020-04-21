@@ -16,7 +16,7 @@ from cocotb.generators.bit import wave
 
 import cocotbext.interfaces
 #from cocotbext.interfaces.avalon.driver import AvalonST as AvalonSTDriver
-from cocotbext.interfaces.avalon.monitor import AvalonST as AvalonSTMonitor
+from cocotbext.interfaces.avalon.streaming import StreamingMonitor as AvalonSTMonitor
 
 class AvalonSTTB(object):
     """Testbench for avalon basic stream"""

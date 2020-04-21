@@ -10,6 +10,9 @@ import cocotbext.interfaces as ci
 import cocotbext.interfaces.signal as cis
 import cocotbext.interfaces.model as cim
 
+
+_LOGGER = cocotb.SimLog(f"cocotbext.interfaces.avalon")
+
 class SynchronousEdges(enum.Enum):
     NONE = enum.auto()
     DEASSERT = enum.auto()
@@ -121,7 +124,8 @@ class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
         Blocking call to transmit a logical input as physical stimulus, driving
         pins of the interface. This (generally) consumes simulation time.
         """
-        # TODO: (redd@) logging
+
+        _LOGGER.debug(f"{str(self)} awaiting tx...")
         if sync:
             await self.re
 
@@ -130,13 +134,16 @@ class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
             await self.re
             self._event_loop()
 
+        _LOGGER.debug(f"{str(self)} completed tx")
+
     @cocotb.coroutine
     async def rx(self) -> Dict:
         """
         Blocking call to sample/receive physical stimulus on pins of the interface and return the
         equivalent logical output. This (generally) consumes simulation time.
         """
-        # TODO: (redd@) logging
+        _LOGGER.debug(f"{str(self)} awaiting rx...")
+
          # TODO: (redd@) Sync here?
 
         self.busy = True
@@ -144,4 +151,6 @@ class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
             await self.re
             self._event_loop()
 
-        return self._output()
+        out = self._output()
+        _LOGGER.debug(f"{str(self)} completed rx: {out}")
+        return out

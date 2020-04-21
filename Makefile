@@ -35,6 +35,10 @@ clean:
 	-@find . -name "obj" | xargs rm -rf
 	-@find . -name "*.pyc" | xargs rm -rf
 	-@find . -name "*results.xml" | xargs rm -rf
+	-@find . -name "*.log" | xargs rm -rf
+	-@find . -name "*.vcd" | xargs rm -rf
+	-@find . -name "*.png" | xargs rm -rf
+	-@find . -name "**tests/**/*build" | xargs rm -rf
 	$(MAKE) -C examples clean
 	$(MAKE) -C tests clean
 

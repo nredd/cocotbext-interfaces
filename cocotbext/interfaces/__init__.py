@@ -14,8 +14,7 @@ from cocotbext.interfaces import signal as cis
 
 # Base logger for module
 _LOGGER = cocotb.SimLog(f"cocotbext.interfaces")
-_LOGGER.setLevel(logging.DEBUG)
-
+_LOGGER.setLevel(logging.INFO)
 
 class InterfaceProtocolError(Exception):
     pass

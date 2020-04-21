@@ -57,12 +57,12 @@ class Signal(object):
         if self.filter is not None:
             self.filter(val)
 
-        _LOGGER.debug(f"{str(self)} captured sample: {repr(val)}")
-
         if self.logical_type == int:
-            return val.integer
+            val = val.integer
         elif self.logical_type == bool:
-            return bool(val.integer)
+            val = bool(val.integer)
+
+        _LOGGER.debug(f"{str(self)} captured sample: {repr(val)}")
         return val
 
     def drive(self, val: _allowed) -> None:
@@ -84,7 +84,8 @@ class Signal(object):
             else:  # Valid for bool and int
                 val = ~val & len(self.handle)
 
-        self.handle <= (val if self.logical_type != bool else int(val))
+        val = val if self.logical_type != bool else int(val)
+        self.handle <= val
         _LOGGER.debug(f"{str(self)} driven to: {repr(val)}")
 
     def __init__(self,

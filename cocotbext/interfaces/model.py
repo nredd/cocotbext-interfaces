@@ -3,18 +3,55 @@ import copy
 import functools
 import itertools
 import logging
+import sys
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
 import cocotb
 import transitions
 import wrapt
-from transitions.extensions import HierarchicalMachine
+from transitions import State
+from transitions.extensions import HierarchicalGraphMachine
 from transitions.extensions.states import add_state_features, Tags, Volatile
 
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.signal as cis
 
-_LOGGER = cocotb.SimLog(f"cocotbext.interfaces.model")
+# TODO: (redd@) Refactor logger configs
+_LOG = cocotb.SimLog(f"cocotbext.interfaces.model")
+transitions.core._LOGGER.setLevel(logging.INFO)
+transitions.core._LOGGER.addHandler(logging.StreamHandler(sys.stdout))
+
+
+class Behavioral(State):
+    """
+    Collects attributes associated with a given `State`, as needed for behavioral modelling.
+
+    Attributes:
+        conditions: List of boolean conditions which constrain `Control`s to a specific value,
+        used to define behavioral context.
+        reactions: List of behaviorally-inherited reactions.
+        influences: List of `Control`s whose values must be known while in a given `State`,
+        used to determine which `Control`s must be re-sampled after completing a cycle.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Args:
+            **kwargs: If kwargs contains `volatile`, always create an instance of the passed class
+                whenever the state is entered. The instance is assigned to a model attribute which
+                can be passed with the kwargs keyword `hook`. If hook is not passed, the instance will
+                be assigned to the 'attribute' scope. If `volatile` is not passed, an empty object will
+                be assigned to the model's hook.
+        """
+        self.conditions = kwargs.pop('conditions', [])
+        self.reactions = kwargs.pop('reactions', [])
+        self.influences = kwargs.pop('influences', [])
+        super().__init__(*args, **kwargs)
+        self.initialized = True
+
+    # TODO: (redd@) Anything fun to add here?
+
+
 
 class Reaction(object):
     """
@@ -55,8 +92,8 @@ class Reaction(object):
         return f"<{self.__class__.__name__}(cname={self.cname},fns={self.fns},force={self.force})>"
 
 
-@add_state_features(Tags, Volatile)
-class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
+@add_state_features(Tags, Volatile, Behavioral)
+class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
 
     def __str__(self):
@@ -78,33 +115,17 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
         self._primary = primary
         self._elaborated = self._elaborate()
 
-        s = copy.copy(self._elaborated)
-
-        def sanitize(d: Dict):
-            if 'conditions' in d.keys():
-                del d['conditions']
-            if 'reactions' in d.keys():
-                del d['reactions']
-            if 'influences' in d.keys():
-                del d['influences']
-
-            if 'children' in d.keys():
-                for c in d['children']:
-                    sanitize(c)
-
-        sanitize(s)
-        _LOGGER.info(f"Sanitized:\n {s}")
-
-        # TODO: (redd@) Override transitions logger?
         # TODO: (redd@) Get send_event working
         super().__init__(
-            states=s,
-            initial='ROOT',
-            queued=True
-        #    send_event=True
+            states=self._elaborated,
+            initial='TOP',
+            queued=True,
+        #    send_event=True,
         )
 
-        _LOGGER.info(f"New {repr(self)}")
+        # TODO: (redd@) make this prettier; default file location?
+        self.get_graph().draw('my_state_diagram.png', prog='dot')
+        _LOG.info(f"New {repr(self)}")
 
     @property
     def itf(self) -> ci.BaseInterface:
@@ -121,11 +142,10 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             next(iter(self.reactions)).fns.extend(val.fns)
         else:
             self.reactions.add(val)
-        _LOGGER.debug(f"{str(self)} applied: {repr(val)}")
+        _LOG.debug(f"{str(self)} applied: {repr(val)}")
 
 
-    # TODO: (redd@) cache this after init; avoid 'sanitizing'
-    # TODO: (redd@) Use dicts for transitions, not lists
+    # TODO: (redd@) cache this after init
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
     def _elaborate(self) -> Dict:
         """
@@ -209,8 +229,8 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             """
 
             sample = lambda: ctrl.capture()
-            is_fix = lambda _: sample() in ctrl.fix_vals
-            is_flow = lambda _: sample() in ctrl.flow_vals
+            is_fix = lambda : sample() in ctrl.fix_vals
+            is_flow = lambda : sample() in ctrl.flow_vals
 
             def value(val, flow=True, delayed=False, cond=None, infl=None, react=None):
                 """
@@ -229,8 +249,8 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                 """
 
                 # Positive, negative constraints for base, delayed substates respectively
-                pcon = lambda _: sample() == val if flow else is_fix
-                ncon = lambda _: sample() != val if flow else is_flow
+                pcon = lambda : sample() == val if flow else is_fix
+                ncon = lambda : sample() != val if flow else is_flow
 
                 # Include reaction if defined
                 match = next(
@@ -260,8 +280,8 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     subname = 'ALLOWANCE' if flow else 'LATENCY'
                     hook = f"{ctrl.name}_{subname.lower()}_count"
 
-                    wait = lambda _: (ctrl.allowance if flow else ctrl.latency) > getattr(self, hook)
-                    tick = lambda _: setattr(self, hook, getattr(self, hook) + 1)
+                    wait = lambda : (ctrl.allowance if flow else ctrl.latency) > getattr(self, hook)
+                    tick = lambda : setattr(self, hook, getattr(self, hook) + 1)
 
                     n['children'].append(
                         node(
@@ -308,7 +328,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     influences=infl,
                     reactions=react,
                     initial='INIT',
-                    on_enter=[lambda _: self.trigger('advance')],
+                    on_enter=[lambda : self.trigger('advance')],
                     transitions=t,
                     conditions=cond
                 )
@@ -324,7 +344,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                 ],
                 influences=infl,
                 initial='INIT',
-                on_enter=[lambda _: self.trigger('advance')],
+                on_enter=[lambda : self.trigger('advance')],
                 transitions=[
                     {'trigger': 'advance', 'source': ['INIT', 'FXD'], 'dest': 'FLW',
                      'conditions': cond + [is_flow]},
@@ -333,7 +353,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                 ]
             )
 
-            _LOGGER.debug(f"New control-nest: {n}")
+            _LOG.debug(f"New control-nest: {n}")
             return n
 
         def add_level(bh, controls: Iterable[cis.Control]):
@@ -351,7 +371,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             # Control-nest's influences are all other instantiated Controls along/above its precedence level
             cond = {}
             for c in controls:
-                _LOGGER.debug(f"{str(self)} preprocessing: {str(c)}")
+                _LOG.debug(f"{str(self)} preprocessing: {str(c)}")
                 match = next(
                     (r for r in self.reactions if r.cname == c.name and r.force),
                     None)
@@ -362,7 +382,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                         'flow': lambda: c.capture() in c.flow_vals
                     }
                 elif match is not None: # Forced reactions create 'virtual' precedence levels
-                    _LOGGER.debug(f"{str(self)} inserting forced reaction: {repr(match)}")
+                    _LOG.debug(f"{str(self)} inserting forced reaction: {repr(match)}")
                     for f in flatten(get_flowers(bh)):
                         f['tags'].remove('flow')
                         f['initial'] = c.name.upper()
@@ -380,11 +400,11 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
             if cond: # Elaborate behavior of instantiated Controls, if any
                 for f in flatten(get_flowers(bh)):
-                    _LOGGER.debug(f"{str(self)} adding to flower ({f})")
+                    _LOG.debug(f"{str(self)} adding to flower ({f})")
                     f['tags'].remove('flow')
                     f['initial'] = 'INIT'
                     f['children'] = [node(name='INIT')]
-                    f['on_enter'] = [lambda _: self.trigger('advance')]
+                    f['on_enter'] = [lambda : self.trigger('advance')]
                     f['transitions'] = []
 
                     for key, val in cond.items():
@@ -411,9 +431,17 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             add_level(bh, g)
 
         # TODO: (redd@) Add callback accepting event data to determine src of context violation
-        bh['transitions'].append({'trigger': 'advance', 'source': '*', 'dest': 'INIT'})
+        # Top-level wrapper which allows proper machine initialization
+        return node(
+            name='TOP',
+            children=[node(name='NULL', tags=['fix']), bh],
+            initial='NULL',
+            transitions=[
+                {'trigger': 'advance', 'source': 'NULL', 'dest': 'ROOT'},
+                {'trigger': 'advance', 'source': 'ROOT', 'dest': 'NULL'}
+            ]
+        )
 
-        return bh
 
     @property
     def primary(self) -> Optional[bool]:
@@ -442,7 +470,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
     def _clear(self) -> None:
         [v.clear() for v in self.buff.values()]
         self.busy = None
-        _LOGGER.debug(f"{str(self)} buffer cleared")
+        _LOG.debug(f"{str(self)} buffer cleared")
 
     def _input(self, txn: Dict) -> None:
         """Buffer logical input transactions."""
@@ -458,7 +486,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             self.buff[k].extendleft(v)
 
         self.busy = True
-        _LOGGER.debug(f"{str(self)} buffered input: {txn}")
+        _LOG.debug(f"{str(self)} buffered input: {txn}")
 
     def _output(self) -> Dict:
         """Returns completed logical output transaction."""
@@ -467,22 +495,22 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
         out = {k: list(v) for k, v in self.buff.items()}
         self._clear()
-        _LOGGER.debug(f"{str(self)} buffered output: {out}")
+        _LOG.debug(f"{str(self)} buffered output: {out}")
         return out
 
     def _event_loop(self) -> None:
         """Main event loop for behavioral models."""
-        _LOGGER.debug(f"{str(self)} looping...")
+        _LOG.debug(f"{str(self)} looping...")
         self.trigger('advance')
 
-        if not (self.get_state(self.state).is_flow or self.get_state(self.state).is_fix):
+        if self.state == 'TOP_NULL':
             raise ci.InterfaceProtocolError(f"Control context invariant was violated")
 
         # Delete cached values of influences, execute reactions
-        for c in self.get_state(self.state)['influences']:
-            getattr(self.itf, c).clear()
+        for c in self.get_state(self.state).influences:
+            self.itf[c].clear()
 
-        for fn in self.get_state(self.state)['reactions']:
+        for fn in self.get_state(self.state).reactions:
             fn()
 
-        _LOGGER.debug(f"{str(self)} looped!")
+        _LOG.debug(f"{str(self)} looped!")

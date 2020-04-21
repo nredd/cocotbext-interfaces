@@ -4,13 +4,11 @@ from typing import Optional, Dict, Set
 
 import cocotb
 from cocotb.handle import SimHandleBase
-from cocotb.triggers import Trigger
+from cocotb.triggers import Trigger, RisingEdge
 
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.signal as cis
 import cocotbext.interfaces.model as cim
-
-# cis.Signal, cis.Control
 
 class SynchronousEdges(enum.Enum):
     NONE = enum.auto()
@@ -89,16 +87,16 @@ class BaseSynchronousInterface(ci.BaseInterface, metaclass=abc.ABCMeta):
         # TODO: (redd@) rate, edges args
         super().__init__(entity, *args, family='avalon', **kwargs)
 
-        self._clock = Clock(entity,  family='avalon', log_level=self.log.level)
-        self._reset = Reset(entity, clock=self._clock,  family='avalon', log_level=self.log.level)
-        self._specify(self._clock.signals)
-        self._specify(self._reset.signals)
+        self._clock = Clock(entity,  family='avalon')
+        self._reset = Reset(entity, clock=self._clock,  family='avalon')
+        self._specify(self._clock.signals, precedes=True)
+        self._specify(self._reset.signals, precedes=True)
 
-
+    # TODO: (redd@) Rename? is ambig
     @property
-    def clock(self) -> SimHandleBase: return self._clock['clk']
+    def clock(self) -> SimHandleBase: return self._clock['clk'].handle
     @property
-    def reset(self) -> SimHandleBase: return self._reset['reset']
+    def reset(self) -> SimHandleBase: return self._reset['reset'].handle
 
 
 class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
@@ -111,28 +109,39 @@ class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
     def __init__(self, itf: BaseSynchronousInterface, *args, **kwargs) -> None:
 
         super().__init__(itf, *args, **kwargs)
+        self.re = RisingEdge(itf.clock)
 
     @property
     def itf(self) -> BaseSynchronousInterface:
         return self._itf
 
-    async def tx(self, trig: Trigger, txn: Dict) -> None:
+    @cocotb.coroutine
+    async def tx(self, txn: Dict, sync: bool = True) -> None:
         """
         Blocking call to transmit a logical input as physical stimulus, driving
         pins of the interface. This (generally) consumes simulation time.
         """
+        # TODO: (redd@) logging
+        if sync:
+            await self.re
+
         self._input(txn)
         while self.busy:
-            await trig
+            await self.re
             self._event_loop()
 
-    async def rx(self, trig: Trigger) -> Dict:
+    @cocotb.coroutine
+    async def rx(self) -> Dict:
         """
         Blocking call to sample/receive physical stimulus on pins of the interface and return the
         equivalent logical output. This (generally) consumes simulation time.
         """
+        # TODO: (redd@) logging
+         # TODO: (redd@) Sync here?
+
         self.busy = True
         while self.busy:
-            await trig
+            await self.re
             self._event_loop()
+
         return self._output()

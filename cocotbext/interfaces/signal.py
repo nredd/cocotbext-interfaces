@@ -44,8 +44,8 @@ class Signal(object):
                f"widths={self.widths},\n " \
                f"direction={self.direction},\n " \
                f"meta={self.meta},\n " \
-               f"logical-type={self.logical_type},\n " \
-               f"handle={self.handle},\n " \
+               f"logical-type={str(self.logical_type)},\n " \
+               f"handle={str(self.handle)},\n " \
                f"filter={self.filter}\n " \
                f")>\n"
 
@@ -269,9 +269,6 @@ class Control(Signal):
             fix_vals: Optional[Set[bool]] = None,
             **kwargs):
 
-        # Control signals are meta by default; they aren't included in logical transactions
-        super().__init__(*args, meta=True, **kwargs)
-
         if max_allowance < 0:
             raise ValueError(f"Allowance cannot be negative")
         elif max_latency < 0:
@@ -284,10 +281,12 @@ class Control(Signal):
         self._flow_vals = flow_vals if flow_vals else {True}
         self._fix_vals = fix_vals if fix_vals else {False}
 
-        self.allowance = 0
-        self.latency = 0
-        self.precedence = precedence
+        self._allowance = 0
+        self._latency = 0
+        self._precedence = precedence
 
+        # Control signals are meta by default; they aren't included in logical transactions
+        super().__init__(*args, meta=True, **kwargs)
 
         if any(w > 1 for w in self.widths) or self.logical_type != bool:
             raise NotImplementedError(
@@ -337,8 +336,6 @@ class Control(Signal):
 
     @precedence.setter
     def precedence(self, val: int):
-        if val < 0:
-            raise ValueError(f"Precedence cannot be negative")
         self._precedence = val
         _LOGGER.debug(f"{str(self)} set precedence: {val}")
 

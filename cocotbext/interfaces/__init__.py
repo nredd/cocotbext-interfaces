@@ -162,7 +162,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         # Consider relative precedence for new Controls
         cspec = set(s for s in spec if isinstance(s, cis.Control))
         if cspec:
-            offset = max(cspec) if precedes else (self.pmax if self.pmax else 0)
+            offset = max(cspec).precedence if precedes else (self.pmax if self.pmax else 0)
             for c in (self.controls if precedes else cspec):
                 c.precedence += offset
 

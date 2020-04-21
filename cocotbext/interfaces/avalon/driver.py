@@ -16,17 +16,19 @@ class BaseDriver(Driver, metaclass=abc.ABCMeta):
     """
 
     def __str__(self):
-        """Provide the name of the model"""
-        return str(self.mod)
+        return str(self.model)
 
     @abc.abstractmethod
-    def __init__(self, mod: cia.BaseSynchronousModel) -> None:
+    def __init__(self, model: cia.BaseSynchronousModel) -> None:
+        self._model = model
 
         # TODO: (redd@) self.log
         super().__init__()
-        self.mod = mod
-        self.re = RisingEdge(self.mod.itf.clock)
 
+    @property
+    def model(self) -> cia.BaseSynchronousModel: return self._model
+
+    @cocotb.coroutine
     async def _driver_send(self, txn: Dict, sync: bool = True) -> None:
         """Implementation for BaseDriver.
 
@@ -34,10 +36,7 @@ class BaseDriver(Driver, metaclass=abc.ABCMeta):
             transaction: The transaction to send.
         """
 
-        if sync:
-            await self.re
-
-        await self.mod.tx(self.re, txn)
+        await self.model.tx(txn, sync)
 
 
 class AvalonST(BaseDriver):

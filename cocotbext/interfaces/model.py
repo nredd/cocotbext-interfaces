@@ -1,4 +1,5 @@
 import abc
+import copy
 import functools
 import itertools
 import logging
@@ -67,10 +68,10 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
     def __repr__(self):
         return f"<{self.__class__.__name__}(\n" \
-               f"itf={repr(self.itf)},\n " \
+               f"itf={str(self.itf)},\n " \
                f"primary={self.primary},\n " \
                f"reactions={repr(self.reactions)},\n " \
-               f"nest={self.nest}\n " \
+               f"nest={self._elaborated.items()}\n " \
                f")>\n"
 
     @abc.abstractmethod
@@ -82,15 +83,34 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
         self._buff = {}
         self.busy = None
-
         self._primary = primary
+        self._elaborated = self._elaborate()
+
+        s = copy.copy(self._elaborated)
+
+        def sanitize(d: Dict):
+            if 'conditions' in d.keys():
+                del d['conditions']
+            if 'reactions' in d.keys():
+                del d['reactions']
+            if 'influences' in d.keys():
+                del d['influences']
+
+            if 'children' in d.keys():
+                for c in d['children']:
+                    sanitize(c)
+
+        sanitize(s)
+        _LOGGER.info(f"Sanitized:\n {s}")
 
         # TODO: (redd@) Override transitions logger?
-        HierarchicalMachine.__init__(self,
-                                     states=self.nest,
-                                     initial='ROOT',
-                                     queued=True,
-                                     send_event=True)
+        # TODO: (redd@) Get send_event working
+        super().__init__(
+            states=s,
+            initial='ROOT',
+            queued=True
+        #    send_event=True
+        )
 
         _LOGGER.info(f"New {repr(self)}")
 
@@ -111,10 +131,11 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
             self.reactions.add(val)
         _LOGGER.debug(f"{str(self)} applied: {repr(val)}")
 
-    # TODO: (redd@) cache this after init
+
+    # TODO: (redd@) cache this after init; avoid 'sanitizing'
+    # TODO: (redd@) Use dicts for transitions, not lists
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
-    @property
-    def nest(self) -> Dict:
+    def _elaborate(self) -> Dict:
         """
         Generate states, transitions for behavioral interface model based on `itf.controls`.
         """
@@ -127,7 +148,6 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
         # Nested delay (volatile) states are allowed given that a parent control context persists
 
-        # TODO: (redd@) Use dicts for transitions, not lists
         # TODO: (redd@) possible to properly delete cached control values w/ 'after' cb?s
         def node(
                 name='BASE', tags=None, on_enter=None, on_exit=None, initial=None,
@@ -156,25 +176,28 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
             return n
 
-        def is_flow(state) -> bool:
-            return 'tags' in state and 'flow' in state['tags']
+        def is_flow(state: Dict) -> bool:
+            return 'tags' in state.keys() and 'flow' in state['tags']
 
-        def is_fix(state) -> bool:
-            return 'tags' in state and 'fix' in state['tags']
+        def is_fix(state: Dict) -> bool:
+            return 'tags' in state.keys() and 'fix' in state['tags']
 
-        def is_leaf(state) -> bool:
-            return not 'children' in state or not state['children']
+        def is_leaf(state: Dict) -> bool:
+            return not ('children' in state.keys() and state['children'])
 
-        def get_flowers(nest):
+        def get_flowers(nest: Dict) -> List:
             if not is_fix(nest):
                 if is_leaf(nest) and is_flow(nest):
-                    return nest
+                    return [nest]
                 return [get_flowers(c) for c in nest['children']]
 
-        def flatten(ls) -> List:
+        def flatten(ls: List) -> List[Dict]:
             f = []
             for i in ls:
-                f.extend(flatten(i)) if isinstance(i, list) else f.append(i)
+                if isinstance(i, list):
+                    f.extend(flatten(i))
+                elif i is not None:
+                    f.append(i)
             return f
 
         # TODO: (redd@) Refactor
@@ -235,7 +258,9 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                              conditions=cond + [pcon] if cond else [pcon])
                     ],
                     transitions=[
-                        ['advance', 'BASE', None, cond + [pcon] if cond else [pcon]],
+                        {'trigger': 'advance', 'source': 'BASE', 'dest': None,
+                         'conditions': cond + [pcon] if cond else [pcon],
+                         }
                     ]
                 )
 
@@ -246,7 +271,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     wait = lambda _: (ctrl.allowance if flow else ctrl.latency) > getattr(self, hook)
                     tick = lambda _: setattr(self, hook, getattr(self, hook) + 1)
 
-                    n['children'] += [
+                    n['children'].append(
                         node(
                             name=subname,
                             tags=['flow' if flow else 'fix', 'wait'],
@@ -256,14 +281,15 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                             reactions=react,
                             conditions=cond + [ncon] if cond else [ncon]
                         )
-                    ]
-                    n['transitions'] += [
-                        ['advance', 'BASE', subname,
-                         cond + [ncon] if cond else [ncon]],
-                        ['advance', subname, None,
-                         cond + [ncon, wait] if cond else [[ncon, wait]],
-                         None, None, [tick]],
-                    ]
+                    )
+                    n['transitions'].extend([
+                        {'trigger': 'advance', 'source': 'BASE', 'dest': subname,
+                         'conditions': cond + [ncon] if cond else [ncon]
+                         },
+                        {'trigger': 'advance', 'source': subname, 'dest': None,
+                         'conditions': cond + [ncon, wait] if cond else [ncon, wait],
+                         'after': [tick]}
+                    ])
 
                 return n
 
@@ -276,12 +302,13 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     vals: List of flow values.
                 """
 
-                c = [value(
-                    fv, cond=cond, delayed=delayed,
-                    infl=infl,
-                    react=react) for fv in vals] + [node(name='INIT')]
-                t = [['advance', ['INIT'] + [str(src).upper() for src in vals if src != fv],
-                      str(fv).upper(), cond + [lambda: sample() == fv]] for fv in vals]
+                c = [value(fv, cond=cond, delayed=delayed,
+                    infl=infl, react=react) for fv in vals] + [node(name='INIT')]
+                t = [{'trigger': 'advance',
+                      'source': ['INIT'] + [str(src).upper() for src in vals if src != fv],
+                      'dest': str(fv).upper(),
+                      'conditions': cond + [lambda: sample() == fv]
+                      } for fv in vals]
 
                 return node(
                     name='FLW',
@@ -289,7 +316,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     influences=infl,
                     reactions=react,
                     initial='INIT',
-                    on_enter=[lambda _: self.advance()],
+                    on_enter=[lambda _: self.trigger('advance')],
                     transitions=t,
                     conditions=cond
                 )
@@ -305,12 +332,15 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                 ],
                 influences=infl,
                 initial='INIT',
-                on_enter=[lambda _: self.advance()],
+                on_enter=[lambda _: self.trigger('advance')],
                 transitions=[
-                    ['advance', ['INIT', 'FXD'], 'FLW', cond + [is_flow]],
-                    ['advance', ['INIT', 'FLW'], 'FXD', cond + [is_fix]],
+                    {'trigger': 'advance', 'source': ['INIT', 'FXD'], 'dest': 'FLW',
+                     'conditions': cond + [is_flow]},
+                    {'trigger': 'advance', 'source': ['INIT', 'FLW'], 'dest': 'FXD',
+                     'conditions': cond + [is_fix]}
                 ]
             )
+
             _LOGGER.debug(f"New control-nest: {n}")
             return n
 
@@ -326,8 +356,6 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                 controls: List of Controls representing a single precedence level.
             """
 
-            _LOGGER.debug(f"Adding control-level: {str(controls)}")
-
             # Control-nest's influences are all other instantiated Controls along/above its precedence level
             cond = {}
             for c in controls:
@@ -336,9 +364,11 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
                     (r for r in self.reactions if r.cname == c.name and r.force),
                     None)
                 if c.instantiated:
-                    cond[c.name] = {}
-                    cond[c.name]['fix'] = lambda: c.capture() in c.fix_vals
-                    cond[c.name]['flow'] = lambda: c.capture() in c.flow_vals
+                    cond[c.name] = {
+                        'obj': c,
+                        'fix': lambda: c.capture() in c.fix_vals,
+                        'flow': lambda: c.capture() in c.flow_vals
+                    }
                 elif match is not None: # Forced reactions create 'virtual' precedence levels
                     _LOGGER.debug(f"{str(self)} inserting forced reaction: {repr(match)}")
                     for f in flatten(get_flowers(bh)):
@@ -358,37 +388,38 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
 
             if cond: # Elaborate behavior of instantiated Controls, if any
                 for f in flatten(get_flowers(bh)):
-                    _LOGGER.debug(f"{str(self)} adding to flower: {f.items()}")
+                    _LOGGER.debug(f"{str(self)} adding to flower ({f})")
                     f['tags'].remove('flow')
                     f['initial'] = 'INIT'
                     f['children'] = [node(name='INIT')]
-                    f['on_enter'] = [lambda _: self.advance()]
+                    f['on_enter'] = [lambda _: self.trigger('advance')]
                     f['transitions'] = []
 
-                    for c in controls:
-                        if c.instantiated:
-                            mutex = [v['fix'] for k, v in cond.items() if k != c.name]
-                            f['children'] += [
-                                nestify(
-                                    c,
-                                    f['conditions'] + mutex,
-                                    f['influences'] + cond.keys(),
-                                    f['reactions']
-                                )
-                            ]
-                            f['transitions'] += [
-                                ['advance', ['INIT'] + [k.upper() for k in cond.keys() if k != c.name],
-                                 c.name.upper(), mutex + [cond[c.name]['flow']]]
-                            ]
+                    for key, val in cond.items():
+                        mutex = [v['fix'] for k, v in cond.items() if k != key]
+                        f['children'].append(
+                            nestify(
+                                val['obj'],
+                                f['conditions'] + mutex,
+                                f['influences'] + list(cond.keys()),
+                                f['reactions']
+                            )
+                        )
+                        f['transitions'].append(
+                            {'trigger': 'advance',
+                             'source': ['INIT'] + [k.upper() for k in cond.keys() if k != key],
+                             'dest': key.upper(),
+                             'conditions': mutex + [val['flow']]}
+                        )
 
         # Elaborate!
         bh = node(name='ROOT', tags=['flow'])
-        controls = sorted(self.itf.controls, reverse=True)
+        controls = sorted(self.itf.controls)
         for k, g in itertools.groupby(controls, lambda x: x.precedence):
             add_level(bh, g)
 
         # TODO: (redd@) Add callback accepting event data to determine src of context violation
-        bh['transitions'] += ['advance', '*', 'INIT']
+        bh['transitions'].append({'trigger': 'advance', 'source': '*', 'dest': 'INIT'})
 
         return bh
 
@@ -450,7 +481,7 @@ class BaseModel(HierarchicalMachine, metaclass=abc.ABCMeta):
     def _event_loop(self) -> None:
         """Main event loop for behavioral models."""
         _LOGGER.debug(f"{str(self)} looping...")
-        self.advance()
+        self.trigger('advance')
 
         if not (self.get_state(self.state).is_flow or self.get_state(self.state).is_fix):
             raise ci.InterfaceProtocolError(f"Control context invariant was violated")

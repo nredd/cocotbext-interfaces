@@ -8,13 +8,14 @@ import sys
 
 import cocotb
 from cocotb.drivers import BitDriver
+from cocotb.drivers.avalon import AvalonST as AvalonSTDriver
 from cocotb.triggers import RisingEdge
 from cocotb.clock import Clock
 from cocotb.scoreboard import Scoreboard
 from cocotb.generators.bit import wave
 
 import cocotbext.interfaces
-from cocotbext.interfaces.avalon.driver import AvalonST as AvalonSTDriver
+#from cocotbext.interfaces.avalon.driver import AvalonST as AvalonSTDriver
 from cocotbext.interfaces.avalon.monitor import AvalonST as AvalonSTMonitor
 
 class AvalonSTTB(object):
@@ -24,7 +25,7 @@ class AvalonSTTB(object):
 
         self.clkedge = RisingEdge(dut.clk)
 
-        self.stream_in = AvalonSTDriver(self.dut, bus_name="asi")
+        self.stream_in = AvalonSTDriver(self.dut, "asi", dut.clk)
         self.stream_out = AvalonSTMonitor(self.dut, bus_name="aso")
         self.scoreboard = Scoreboard(self.dut, fail_immediately=True)
 

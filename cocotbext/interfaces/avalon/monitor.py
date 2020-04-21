@@ -16,19 +16,22 @@ class BaseMonitor(Monitor, metaclass=abc.ABCMeta):
     """
 
     def __str__(self):
-        """Provide the name of the model"""
-        return str(self.mod)
+        return str(self.model)
 
     @abc.abstractmethod
-    def __init__(self, mod: cia.BaseSynchronousModel, callback: Optional[Callable] = None) -> None:
+    def __init__(self, model: cia.BaseSynchronousModel, callback: Optional[Callable] = None) -> None:
+        self._model = model
+
         # TODO: (redd@) self.log
         super().__init__(callback)
-        self.mod = mod
-        self.re = RisingEdge(self.mod.itf.clock)
 
+    @property
+    def model(self) -> cia.BaseSynchronousModel: return self._model
+
+    @cocotb.coroutine
     async def _monitor_recv(self) -> None:
         """Implementation for BaseMonitor"""
-        txn = await self.mod.rx(self.re)
+        txn = await self.model.rx()
         self._recv(txn)
 
 

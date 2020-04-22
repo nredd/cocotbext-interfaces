@@ -3,13 +3,19 @@ import math
 import warnings
 from typing import List, Optional, Set, Callable
 
-import cocotb
+
 from cocotb.binary import BinaryValue
+from cocotb.drivers import Driver
+from cocotb.monitors import Monitor
+from cocotb.decorators import coroutine
+from cocotb.handle import SimHandleBase
+from cocotb.log import SimLog
+from cocotb.triggers import RisingEdge, ReadOnly
 
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.adapters as ciad
 import cocotbext.interfaces.avalon as cia
-import cocotbext.interfaces.model as cim
+import cocotbext.interfaces.decorators as cid
 import cocotbext.interfaces.signal as cis
 
 class StreamingInterface(cia.BaseSynchronousInterface):
@@ -196,7 +202,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
         val = data.value.binstr[:-empty] if be else data.value.binstr[empty:]
         vec.assign(val)
         if not vec.is_resolvable:
-            raise ci.InterfaceProtocolError(f"cis.Signal ({str(self['data'])} is unresolvable.")
+            raise ci.InterfaceProtocolError(f"Signal ({str(self['data'])} is unresolvable.")
         return vec
 
     @property
@@ -247,7 +253,7 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
     @property
     def itf(self) -> StreamingInterface: return self._itf
 
-    @cim.Reaction('reset', True)
+    @cid.reaction('reset', True)
     def reset(self):
         self.in_pkt = False if self.itf.packets else None
 
@@ -260,12 +266,12 @@ class PassiveSinkModel(BaseStreamingModel):
         super().__init__(*args, primary=False, **kwargs)
         self.prev_channel = None
 
-    @cim.Reaction('reset', True)
+    @cid.reaction('reset', True)
     def reset(self):
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
-    @cim.Reaction('valid', True, force=True)
+    @cid.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
 
         channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
@@ -313,7 +319,7 @@ class PassiveSinkModel(BaseStreamingModel):
         if not self.itf.packets or eop:
 
             if self.prev_channel is not None:
-                self.buff['channel'] = self.prev_channel
+                self.buff['channel'].append(self.prev_channel)
 
             self.busy = False
 
@@ -335,15 +341,43 @@ class SourceModel(BaseStreamingModel):
 
     # TODO: (redd@) Rewrite w filters
 
-    @cim.Reaction('valid', False, force=False)
+    @cid.reaction('valid', False)
     def assert_valid(self) -> None:
-        if not self.itf['ready'].generated:
+        # Unforced reaction, so must manually assert valid if not generated
+        if not self.itf['valid'].generated:
             self.itf['valid'].drive(True)
+        if self.in_pkt is not None and max(len(b) for b in self.buff.values()) > 0:
+            self.itf['startofpacket'].drive(True)
 
-    @cim.Reaction('valid', True)
+    @cid.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
-        raise NotImplementedError
 
+        channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None
+        data = self.buff['data'].pop() if self.itf['data'].instantiated else None
+        error = self.buff['error'].pop() if self.itf['error'].instantiated else None
+        # TODO: (redd@) calculate+drive empty
+
+        remaining = max(len(b) for b in self.buff.values())
+
+        if channel is not None:
+            self.itf['channel'].drive(channel)
+        if data is not None:
+            self.itf['data'].drive(data)
+        if error is not None:
+            self.itf['error'].drive(error)
+
+        if self.in_pkt:
+            self.itf['startofpacket'].drive(False)
+            if remaining == 1:
+                self.itf['endofpacket'].drive(True)
+
+        if remaining:
+            if self.itf['valid'].instantiated and not self.itf['valid'].generated:
+                self.itf['valid'].drive(True)
+        else:
+            if self.itf['valid'].instantiated and not self.itf['valid'].generated:
+                self.itf['valid'].drive(False)
+            self.busy = False
 
 class StreamingDriver(ciad.BaseDriver):
 

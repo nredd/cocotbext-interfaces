@@ -3,13 +3,13 @@ import enum
 import warnings
 from typing import Optional, Type, Union, Set, Iterator, Callable
 
-import cocotb
 from cocotb.binary import BinaryValue
 from cocotb.handle import SimHandleBase
+from cocotb.log import SimLog
 
 import cocotbext.interfaces as ci
 
-_LOGGER = cocotb.SimLog(f"cocotbext.interfaces.signal")
+_LOGGER = SimLog(f"cocotbext.interfaces.signal")
 
 class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),

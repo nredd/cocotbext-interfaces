@@ -4,20 +4,21 @@ import functools
 import itertools
 import logging
 import sys
+from collections import deque
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
-import cocotb
 import transitions
-import wrapt
+from cocotb.log import SimLog
 from transitions import State
 from transitions.extensions import HierarchicalGraphMachine
 from transitions.extensions.states import add_state_features, Tags, Volatile
 
 import cocotbext.interfaces as ci
+import cocotbext.interfaces.decorators as cid
 import cocotbext.interfaces.signal as cis
 
 # TODO: (redd@) Refactor logger configs
-_LOG = cocotb.SimLog(f"cocotbext.interfaces.model")
+_LOG = SimLog(f"cocotbext.interfaces.model")
 transitions.core._LOGGER.setLevel(logging.WARNING)
 transitions.core._LOGGER.addHandler(logging.StreamHandler(sys.stdout))
 
@@ -52,46 +53,6 @@ class Behavioral(State):
     # TODO: (redd@) Anything fun to add here?
 
 
-
-class Reaction(object):
-    """
-    Decorator used to setup function callbacks provided as behavioral reactions.
-    """
-
-    def __init__(self, cname: str, val: bool, force: bool = False):
-        """
-        Attr:
-            cname:
-            val:
-            force: If asserted, reaction should be included even if `Control` is not instantiated.
-            This effectively creates a 'virtual' precedence level for `Control`.
-        """
-        # TODO: (redd@) Expand to accept lists for cname, val; accept wildcard?
-        self.cname = cname
-        self.val = val
-        self.force = force
-
-    @wrapt.decorator
-    def __call__(self, wrapped, instance, args, kwargs):
-        self.fns = [wrapped]
-        instance._add_reaction(self)
-        return wrapped(*args, **kwargs)
-
-    def __eq__(self, other):
-        """
-
-        An incompatibility occurs when two `Reaction`s have matching cname and at least one
-        of them is forced.
-
-        """
-        if not isinstance(other, Reaction):
-            return NotImplemented
-        return self.cname == other.cname and self.val == other.val and self.force == other.force
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}(cname={self.cname},fns={self.fns},force={self.force})>"
-
-
 @add_state_features(Tags, Volatile, Behavioral)
 class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
@@ -110,9 +71,10 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         self._reactions = set()
         self._itf = itf
 
-        self._buff = {}
         self.busy = None
         self._primary = primary
+        self._buff = {k: deque() for k in self.itf._txn(primary=self.primary)}
+
         self._elaborated = self._elaborate()
 
         # TODO: (redd@) Get send_event working
@@ -132,17 +94,17 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         return self._itf
 
     @property
-    def reactions(self) -> Set[Reaction]:
+    def reactions(self) -> Set[cid.reaction]:
         return self._reactions
 
-    def _add_reaction(self, val: Reaction) -> None:
+    def _add_reaction(self, val: cid.reaction) -> None:
         if any(r.cname == val.cname and r.force and val.force for r in self.reactions):
             raise ValueError(f"At most one control value reaction may be forced")
         if val in self.reactions:
             next(iter(self.reactions)).fns.extend(val.fns)
         else:
             self.reactions.add(val)
-        _LOG.debug(f"{str(self)} applied: {repr(val)}")
+        _LOG.info(f"{str(self)} applied: {repr(val)}")
 
 
     # TODO: (redd@) cache this after init
@@ -160,7 +122,6 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
 
         # Nested delay (volatile) states are allowed given that a parent control context persists
 
-        # TODO: (redd@) possible to properly delete cached control values w/ 'after' cb?s
         def node(
                 name='BASE', tags=None, on_enter=None, on_exit=None, initial=None,
                 children=None, transitions=None, volatile=None, hook=None,
@@ -211,8 +172,6 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
                 elif i is not None:
                     f.append(i)
             return f
-
-        # TODO: (redd@) Refactor
 
         def nestify(ctrl: cis.Control, cond: List, infl: List, react: List) -> Dict:
             """
@@ -305,7 +264,6 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
 
                 return n
 
-            # TODO: (redd@) Add equivalent for fix'd nest
             def flow(vals, delayed, cond: List, infl: List, react: List):
                 """
                 Returns a nest encapsulating a set of flow values.
@@ -467,19 +425,21 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
     def buff(self) -> Dict[str, Deque]:
         return self._buff
 
+    # TODO: (redd@) Add 'remaining_chunks' or equiv method to determine remaining busy cycles
+
     def _clear(self) -> None:
         [v.clear() for v in self.buff.values()]
         self.busy = None
         _LOG.debug(f"{str(self)} buffer cleared")
 
-    def _input(self, txn: Dict) -> None:
+    def _input(self, txn: Dict[str, Iterable]) -> None:
         """Buffer logical input transactions."""
         if self.busy:
             raise ci.InterfaceProtocolError(f"{str(self)} cannot ingest logical input if busy")
 
-        if txn.keys() != self.itf._txn(d=self.primary):
+        if set(txn.keys()) != self.itf._txn(primary=self.primary):
             raise ValueError(
-                f"{str(self)} buffer expects {self.itf._txn(d=self.primary)}"
+                f"{str(self)} buffer expects {str(self.itf._txn(primary=self.primary))}"
             )
 
         for k, v in txn.items():

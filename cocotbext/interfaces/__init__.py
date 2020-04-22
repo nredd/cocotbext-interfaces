@@ -5,15 +5,19 @@ import warnings
 from typing import Set, Callable, Optional
 
 import cocotb
-import wrapt
-from cocotb.bus import Bus
 from cocotb.handle import SimHandleBase
+from cocotb.log import SimLog
 
-from cocotbext.interfaces import signal as cis
-
+# Add decorators, signal to namespace
+from cocotbext.interfaces import (
+    decorators as cid,
+    adapters as cia,
+    signal as cis,
+    model as cim,
+)
 
 # Base logger for module
-_LOGGER = cocotb.SimLog(f"cocotbext.interfaces")
+_LOGGER = SimLog(f"cocotbext.interfaces")
 _LOGGER.setLevel(logging.INFO)
 
 class InterfaceProtocolError(Exception):
@@ -24,36 +28,14 @@ class InterfacePropertyError(ValueError):
     pass
 
 
-class Filter(object):
-    """
-    Decorator used to setup methods provided as `Signal` filters e.g. for logical validation.
-    """
-
-    def __init__(self, cname: str):
-        self.cname = cname
-
-    @wrapt.decorator
-    def __call__(self, wrapped, instance, args, kwargs):
-        self.fn = wrapped
-        instance._add_filter(self)
-        return wrapped(*args, **kwargs)
-
-    def __eq__(self, other):
-        if not isinstance(other, Filter): return NotImplemented
-        return self.cname == other.cname
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}(cname={self.cname},fn={self.fn})>"
-
-
 class BaseInterface(object, metaclass=abc.ABCMeta):
 
     def __str__(self):
         return f"<{self.family}-{self.__class__.__name__}>"
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}(family={self.family},signals={repr(self.signals)}," \
-               f"floor={str(self.floor)}, ceiling={str(self.ceiling)}," \
+        return f"<{self.__class__.__name__}(entity={str(self.entity)},family={self.family}," \
+               f"signals={repr(self.signals)},floor={str(self.floor)}, ceiling={str(self.ceiling)}," \
                f"filters={repr(self.filters)})>"
 
 
@@ -82,33 +64,28 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
     def __init__(self,
                  entity: SimHandleBase,
                  bus_name: Optional[str] = None,
-                 bus_separator: Optional[str] = "_",
+                 bus_separator: str = "_",
                  family: Optional[str] = None,
                  log_level: Optional[int] = None) -> None:
         """Should be extended by child class."""
 
+        self._entity = entity
         self._family = family.capitalize() if family else None
 
         if log_level is not None:
             _LOGGER.setLevel(log_level)
 
         self._filters = set()
-        self._specify(self.specification())
-
-        # TODO: (redd@) Remove bus; account for naming variations e.g. w/ _n suffix
-        self._bus = Bus(
-            entity, bus_name, [s.name for s in self.specification() if s.required],
-            [s.name for s in self.specification() if not s.required], bus_separator)
-
-        # Instantiate signals on bus, add provided filters
-        for s in self.signals:
-            if s.name in self._bus._signals:
-                s.handle = self._bus._signals[s.name]
-                for f in self.filters:
-                    if f.cname == s.name:
-                        s.filter = f
+        self._specify(
+            self.specification(),
+            bus_name=bus_name,
+            bus_separator=bus_separator
+        )
 
         _LOGGER.info(f"New {repr(self)}")
+
+    @property
+    def entity(self) -> SimHandleBase: return self._entity
 
     @property
     def family(self) -> Optional[str]:
@@ -138,7 +115,9 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
     def ceiling(self) -> Optional[Set[cis.Control]]:
         return set(c for c in self.controls if c.precedence == self.pmax)
 
-    def _specify(self, spec: Set[cis.Signal], precedes: bool = False):
+    def _specify(self, spec: Set[cis.Signal], precedes: bool = False,
+                 bus_name: Optional[str] = None,
+                 bus_separator: str = "_"):
         """
         Incorporate specifications into interface.
 
@@ -147,6 +126,9 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
             precedes: Asserted if `Control` instances within `spec` behaviorally-precede those
             currently specified in self._signals.
         """
+
+        # TODO: (redd@) array_idx; account for naming variations e.g. w/ _n suffix
+        def alias(s: cis.Signal): return (bus_name + bus_separator if bus_name else '') + s.name
 
         if not hasattr(self, '_signals'):
             self._signals = set()
@@ -161,26 +143,41 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
             for c in (self.controls if precedes else cspec):
                 c.precedence += offset
 
+        # Instantiate signals, bind filters
         for s in spec:
+            if not hasattr(self.entity, alias(s)):
+                if s.required:
+                    raise InterfaceProtocolError(f"{str(self)} missing required signal: {str(s)}")
+
+                _LOGGER.debug(f"{str(self)} ignoring optional missing signal: {str(s)}")
+            else:
+                s.handle = getattr(self.entity, alias(s))
+            for f in self.filters:
+                if f.cname == s.name:
+                    s.filter = f
             self._signals.add(s)
 
-        _LOGGER.debug(f"{str(self)} applied: {repr(spec)}")
+        _LOGGER.debug(f"{str(self)} applied: {str(spec)}")
 
-    def _txn(self, d: Optional[cis.Direction] = None) -> Set:
+    def _txn(self, primary: Optional[bool] = None) -> Set[str]:
         """
         Returns names of signals in logical transactions. Optionally filter by direction.
         Args:
-            d: If specified, matches parallel to d.
+            primary: If True, False direction must be `Direction:FROM_PRIMARY`,
+            `Direction:TO_PRIMARY`, respectively.
         """
-        cnd = lambda s: s.instantiated and not s.meta and (True if d is None else s.direction == d)
+        d = cis.Direction.FROM_PRIMARY if primary else \
+            (cis.Direction.BIDIRECTIONAL if primary is None else cis.Direction.TO_PRIMARY)
+
+        cnd = lambda s: s.instantiated and not s.meta and s.direction == d
         return set(s.name for s in self.signals if cnd(s))
 
     @property
-    def filters(self) -> Set[Filter]:
+    def filters(self) -> Set[cid.filter]:
         return self._filters
 
-    def _add_filter(self, val: Filter) -> None:
+    def _add_filter(self, val: cid.filter) -> None:
         if val in self.filters:
             warnings.warn(f"Duplicate filter received; overwriting {repr(val)}")
         self._filters.add(val)
-        _LOGGER.debug(f"{str(self)} applied: {repr(val)}")
+        _LOGGER.info(f"{str(self)} applied: {repr(val)}")

@@ -1,17 +1,29 @@
 import abc
 import enum
+import logging
 from typing import Optional, Dict, Set
 
+
 import cocotb
+from cocotb.binary import BinaryValue
+from cocotb.drivers import Driver
+from cocotb.monitors import Monitor
+from cocotb.decorators import coroutine
 from cocotb.handle import SimHandleBase
-from cocotb.triggers import Trigger, RisingEdge
+from cocotb.log import SimLog
+from cocotb.triggers import RisingEdge, ReadOnly
+
 
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.signal as cis
 import cocotbext.interfaces.model as cim
+from cocotbext.interfaces import BaseInterface, InterfacePropertyError
+from cocotbext.interfaces.avalon import (
+    streaming as cias
+)
 
-
-_LOGGER = cocotb.SimLog(f"cocotbext.interfaces.avalon")
+_LOGGER = SimLog(f"cocotbext.interfaces.avalon")
+_LOGGER.setLevel(logging.INFO)
 
 class SynchronousEdges(enum.Enum):
     NONE = enum.auto()
@@ -19,7 +31,7 @@ class SynchronousEdges(enum.Enum):
     BOTH = enum.auto()
 
 
-class Clock(ci.BaseInterface):
+class Clock(BaseInterface):
     """
     Represents an Avalon Clock interface.
     """
@@ -27,7 +39,7 @@ class Clock(ci.BaseInterface):
     @classmethod
     def specification(cls) -> Set[cis.Signal]:
         return {
-            cis.Signal('clk', required=True)
+            cis.Signal('clk', meta=True, required=True)
         }
 
     def __init__(self, *args,
@@ -35,7 +47,7 @@ class Clock(ci.BaseInterface):
                  **kwargs) -> None:
         # TODO: (redd@) is associatedDirectClock needed? could be used to specify _clock domains
         if rate is not None and not 2 ** 32 - 1 >= rate >= 0:
-            raise ci.InterfacePropertyError(
+            raise InterfacePropertyError(
                 f"{str(self)} spec. defines clockRate as 0-4294967295, was provided {rate}"
             )
 
@@ -49,7 +61,7 @@ class Clock(ci.BaseInterface):
     def rate_known(self) -> bool: return self._rate is not None
 
 
-class Reset(ci.BaseInterface):
+class Reset(BaseInterface):
     """
     Represents an Avalon Reset interface.
     """
@@ -79,7 +91,7 @@ class Reset(ci.BaseInterface):
     def edges(self) -> SynchronousEdges: return self._edges
 
 
-class BaseSynchronousInterface(ci.BaseInterface, metaclass=abc.ABCMeta):
+class BaseSynchronousInterface(BaseInterface, metaclass=abc.ABCMeta):
     """
     Represents a synchronous Avalon interface, which are defined to have associated
     Avalon Clock, Reset interfaces.
@@ -90,8 +102,8 @@ class BaseSynchronousInterface(ci.BaseInterface, metaclass=abc.ABCMeta):
         # TODO: (redd@) rate, edges args
         super().__init__(entity, *args, family='avalon', **kwargs)
 
-        self._clock = Clock(entity,  family='avalon')
-        self._reset = Reset(entity, clock=self._clock,  family='avalon')
+        self._clock = Clock(entity, family='avalon')
+        self._reset = Reset(entity, clock=self._clock, family='avalon')
         self._specify(self._clock.signals, precedes=True)
         self._specify(self._reset.signals, precedes=True)
 
@@ -113,44 +125,48 @@ class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
 
         super().__init__(itf, *args, **kwargs)
         self.re = RisingEdge(itf.clock)
-
+        self.ro = ReadOnly()
+    # TODO: (redd@) Add 'initialize', abstract coroutine to set signals to default
+    # TODO: (redd@) Add reset coroutine
     @property
     def itf(self) -> BaseSynchronousInterface:
         return self._itf
 
-    @cocotb.coroutine
+    @coroutine
     async def tx(self, txn: Dict, sync: bool = True) -> None:
         """
         Blocking call to transmit a logical input as physical stimulus, driving
         pins of the interface. This (generally) consumes simulation time.
         """
 
-        _LOGGER.debug(f"{str(self)} awaiting tx...")
+        _LOGGER.info(f"{str(self)} awaiting tx ({txn})...")
         if sync:
             await self.re
 
         self._input(txn)
         while self.busy:
             await self.re
+            await self.ro
             self._event_loop()
 
-        _LOGGER.debug(f"{str(self)} completed tx")
+        _LOGGER.info(f"{str(self)} completed tx")
 
-    @cocotb.coroutine
+    @coroutine
     async def rx(self) -> Dict:
         """
         Blocking call to sample/receive physical stimulus on pins of the interface and return the
         equivalent logical output. This (generally) consumes simulation time.
         """
-        _LOGGER.debug(f"{str(self)} awaiting rx...")
+        _LOGGER.info(f"{str(self)} awaiting rx...")
 
          # TODO: (redd@) Sync here?
 
         self.busy = True
         while self.busy:
             await self.re
+            await self.ro
             self._event_loop()
 
         out = self._output()
-        _LOGGER.debug(f"{str(self)} completed rx: {out}")
+        _LOGGER.info(f"{str(self)} completed rx: {out}")
         return out

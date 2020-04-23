@@ -68,7 +68,10 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         self.busy = None
         self._primary = primary
         self._buff = {k: collections.deque() for k in self.itf._txn(primary=self.primary)}
-
+        self._reactions = set(
+            d[1].__func__ for d in inspect.getmembers(self, predicate=inspect.ismethod)
+            if getattr(d[1].__func__, 'reaction', False)
+        )
         self._elaborated = self._elaborate()
 
         # TODO: (redd@) Get send_event working
@@ -88,11 +91,8 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         return self._itf
 
     @property
-    def reactions(self) -> Set:
-        found = [(getattr(self, d).cname, getattr(self, d).val, getattr(self, d).force, getattr(self, d))
-                 for d in dir(self) if  callable(getattr(self, d)) and hasattr(getattr(self, d), 'reaction')]
-
-        return set(found)
+    def reactions(self) -> Set[Callable]:
+        return self._reactions
 
     # TODO: (redd@) cache this after init
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
@@ -200,8 +200,9 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
 
                 # Include reaction if defined
                 match = next(
-                    (r[3] for r in self.reactions if r[0] == ctrl.name and r[1] == val), None)
-                react = ([] if react is None else react) + ([] if match is None else match)
+                    (r for r in self.reactions if r.cname == ctrl.name and r.val == val), None
+                )
+                react = ([] if react is None else react) + ([] if match is None else [match])
 
                 n = node(
                     name=str(val).upper(),
@@ -317,9 +318,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
             cond = {}
             for c in controls:
                 _LOG.debug(f"{str(self)} preprocessing: {str(c)}")
-                match = next(
-                    (r for r in self.reactions if r[0] == c.name and r[2]),
-                    None)
+                match = next((r for r in self.reactions if r.cname == c.name and r.force), None)
                 if c.instantiated:
                     cond[c.name] = {
                         'obj': c,
@@ -327,7 +326,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
                         'flow': lambda: c.capture() in c.flow_vals
                     }
                 elif match is not None: # Forced reactions create 'virtual' precedence levels
-                    _LOG.debug(f"{str(self)} inserting forced reaction: {match}")
+                    _LOG.debug(f"{str(self)} inserting forced reaction: {str(match)}")
                     for f in flatten(get_flowers(bh)):
                         f['tags'].remove('flow')
                         f['initial'] = c.name.upper()
@@ -337,7 +336,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
                                 tags=['flow'],
                                 influences=f['influences'],
                                 conditions=f['conditions'],
-                                reactions=f['reactions'] + [match[3]]
+                                reactions=f['reactions'] + [match]
                             )
                         ]
                         f['transitions'] = []

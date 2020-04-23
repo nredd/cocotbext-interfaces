@@ -320,7 +320,8 @@ class StreamingMonitor(ci.adapters.BaseMonitor):
 
         # Args target Interface instance
         itf = StreamingInterface(*args, **kwargs)
-        super().__init__(PassiveSinkModel(itf), callback)
+        mod = PassiveSinkModel(itf)
+        super().__init__(mod, callback)
 
 
 class SourceModel(BaseStreamingModel):
@@ -375,6 +376,7 @@ class StreamingDriver(ci.adapters.BaseDriver):
 
         # Args target Interface instance
         itf = StreamingInterface(*args, **kwargs)
-        super().__init__(SourceModel(itf))
+        mod = SourceModel(itf)
+        super().__init__(mod)
 
 

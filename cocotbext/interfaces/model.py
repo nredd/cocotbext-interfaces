@@ -8,17 +8,17 @@ from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 import cocotb as c
 import transitions as t
 import transitions.extensions as te
+import transitions.extensions.nesting as ten
 import transitions.extensions.states as tes
 
 import cocotbext.interfaces as ci
 
-# TODO: (redd@) Refactor logger configs
-_LOG = c.SimLog(f"cocotbext.interfaces.model")
-t.core._LOGGER.setLevel(logging.WARNING)
-t.core._LOGGER.addHandler(logging.StreamHandler())
+_LOG = c.SimLog(__name__)
+t.core._LOGGER = c.SimLog(f"{__name__}.transitions.core")
+ten._LOGGER = c.SimLog(f"{__name__}.transitions.extensions.nesting")
+tes._LOGGER = c.SimLog(f"{__name__}.transitions.extensions.states")
 
-
-class Behavioral(t.State):
+class Behavioral(ten.State):
     """
     Collects attributes associated with a given `State`, as needed for behavioral modelling.
 
@@ -39,11 +39,18 @@ class Behavioral(t.State):
                 be assigned to the 'attribute' scope. If `volatile` is not passed, an empty object will
                 be assigned to the model's hook.
         """
-        self.conditions = kwargs.pop('conditions', [])
-        self.reactions = kwargs.pop('reactions', [])
-        self.influences = kwargs.pop('influences', [])
+        self._conditions = kwargs.pop('conditions', [])
+        self._reactions = kwargs.pop('reactions', [])
+        self._influences = kwargs.pop('influences', [])
         super().__init__(*args, **kwargs)
         self.initialized = True
+
+    @property
+    def conditions(self) -> List: return self._conditions
+    @property
+    def reactions(self) -> List: return self._reactions
+    @property
+    def influences(self) -> List: return self._influences
 
     # TODO: (redd@) Anything fun to add here?
 
@@ -457,6 +464,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
             self.itf[c].clear()
 
         for fn in self.get_state(self.state).reactions:
+            _LOG.debug(f"{str(self)} calling reaction: {str(fn)}")
             fn()
 
         _LOG.debug(f"{str(self)} looped!")

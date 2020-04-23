@@ -1,6 +1,6 @@
 import cocotb as c
 
-_LOGGER = c.SimLog(f"cocotbext.interfaces.decorators")
+_LOG = c.SimLog(__name__)
 
 class reaction(object):
     """
@@ -18,7 +18,7 @@ class reaction(object):
         f.cname = self.cname
         f.val = self.val
         f.force = self.force
-        _LOGGER.info(f"{repr(self)} detected: {repr(f)}")
+        _LOG.info(f"{repr(self)} detected: {repr(f)}")
         return f
 
     def __repr__(self):
@@ -37,7 +37,7 @@ class filter(object):
     def __call__(self, f):
         f.filter = True
         f.cname = self.cname
-        _LOGGER.info(f"{repr(self)} detected: {repr(f)}")
+        _LOG.info(f"{repr(self)} detected: {repr(f)}")
         return f
 
     # TODO: (redd@) Deprecate this

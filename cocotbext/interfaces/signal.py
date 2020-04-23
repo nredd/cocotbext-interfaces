@@ -8,7 +8,7 @@ import cocotb.binary as cb
 
 import cocotbext.interfaces as ci
 
-_LOGGER = c.SimLog(f"cocotbext.interfaces.signal")
+_LOG = c.SimLog(__name__)
 
 class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),
@@ -61,7 +61,7 @@ class Signal(object):
         elif self.logical_type == bool:
             val = bool(val.integer)
 
-        _LOGGER.debug(f"{str(self)} captured sample: {repr(val)}")
+        _LOG.debug(f"{str(self)} captured sample: {repr(val)}")
         return val
 
     def drive(self, val: _allowed) -> None:
@@ -85,7 +85,7 @@ class Signal(object):
 
         val = val if self.logical_type != bool else int(val)
         self.handle <= val
-        _LOGGER.debug(f"{str(self)} driven to: {repr(val)}")
+        _LOG.debug(f"{str(self)} driven to: {repr(val)}")
 
     def __init__(self,
                  name: str, *args,
@@ -127,7 +127,7 @@ class Signal(object):
         self._handle = None
         self._filter = None
 
-        _LOGGER.info(f"New {repr(self)}")
+        _LOG.info(f"New {repr(self)}")
 
 
     # Read-only
@@ -177,7 +177,7 @@ class Signal(object):
 
         self._handle = val
 
-        _LOGGER.debug(f"{str(self)} set handle: {repr(val)}")
+        _LOG.debug(f"{str(self)} set handle: {repr(val)}")
 
     @property
     def filter(self):
@@ -187,7 +187,7 @@ class Signal(object):
     def filter(self, val: Callable):
         # TODO: (redd@) Validation
         self._filter = val
-        _LOGGER.debug(f"{str(self)} set filter: {repr(val)}")
+        _LOG.debug(f"{str(self)} set filter: {repr(val)}")
 
 
 @functools.total_ordering
@@ -299,7 +299,7 @@ class Control(Signal):
         if not self._max_allowance >= val >= 0:
             raise ValueError(f"Outside defined range")
         self._allowance = val
-        _LOGGER.debug(f"{str(self)} set allowance: {val}")
+        _LOG.debug(f"{str(self)} set allowance: {val}")
 
     @property
     def latency(self):
@@ -310,7 +310,7 @@ class Control(Signal):
         if not self._max_latency >= val >= 0:
             raise ValueError(f"Outside defined range")
         self._latency = val
-        _LOGGER.debug(f"{str(self)} set latency: {val}")
+        _LOG.debug(f"{str(self)} set latency: {val}")
 
     @property
     def precedence(self):
@@ -319,7 +319,7 @@ class Control(Signal):
     @precedence.setter
     def precedence(self, val: int):
         self._precedence = val
-        _LOGGER.debug(f"{str(self)} set precedence: {val}")
+        _LOG.debug(f"{str(self)} set precedence: {val}")
 
     @property
     def generator(self):
@@ -331,7 +331,7 @@ class Control(Signal):
             raise AttributeError(f"Cannot manipulate non-instantiated Control signal")
         self._generator = val
         self.clear()
-        _LOGGER.debug(f"{str(self)} set generator: {repr(val)}")
+        _LOG.debug(f"{str(self)} set generator: {repr(val)}")
 
     def next(self) -> bool:
         try:

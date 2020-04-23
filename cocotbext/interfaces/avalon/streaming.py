@@ -3,9 +3,12 @@ import math
 import warnings
 from typing import List, Optional, Set, Callable
 
+import cocotb as c
 import cocotb.binary as cb
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.avalon as cia
+
+_LOG = c.SimLog(__name__)
 
 class StreamingInterface(cia.BaseSynchronousInterface):
 

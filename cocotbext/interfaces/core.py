@@ -6,7 +6,7 @@ import cocotb as c
 
 import cocotbext.interfaces as ci
 
-_LOGGER = c.SimLog(f"cocotbext.interfaces.core")
+_LOG = c.SimLog(__name__)
 
 class BaseInterface(object, metaclass=abc.ABCMeta):
 
@@ -53,7 +53,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         self._family = family.capitalize() if family else None
 
         if log_level is not None:
-            _LOGGER.setLevel(log_level)
+            _LOG.setLevel(log_level)
 
         self._filters = set()
         self._specify(
@@ -62,7 +62,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
             bus_separator=bus_separator
         )
 
-        _LOGGER.info(f"New {repr(self)}")
+        _LOG.info(f"New {repr(self)}")
 
     @property
     def entity(self) -> c.handle.SimHandleBase: return self._entity
@@ -129,7 +129,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                 if s.required:
                     raise ci.InterfaceProtocolError(f"{str(self)} missing required signal: {str(s)}")
 
-                _LOGGER.debug(f"{str(self)} ignoring optional missing signal: {str(s)}")
+                _LOG.debug(f"{str(self)} ignoring optional missing signal: {str(s)}")
             else:
                 s.handle = getattr(self.entity, alias(s))
             for f in self.filters:
@@ -137,7 +137,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                     s.filter = f
             self._signals.add(s)
 
-        _LOGGER.debug(f"{str(self)} applied: {str(spec)}")
+        _LOG.debug(f"{str(self)} applied: {str(spec)}")
 
     def _txn(self, primary: Optional[bool] = None) -> Set[str]:
         """
@@ -160,4 +160,4 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         if val in self.filters:
             warnings.warn(f"Duplicate filter received; overwriting {repr(val)}")
         self._filters.add(val)
-        _LOGGER.info(f"{str(self)} applied: {repr(val)}")
+        _LOG.info(f"{str(self)} applied: {repr(val)}")

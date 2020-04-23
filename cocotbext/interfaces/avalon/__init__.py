@@ -7,8 +7,7 @@ import cocotb as c
 import cocotb.triggers as ct
 import cocotbext.interfaces as ci
 
-_LOGGER = c.SimLog(f"cocotbext.interfaces.avalon")
-_LOGGER.setLevel(logging.INFO)
+_LOG = c.SimLog(__name__)
 
 class SynchronousEdges(enum.Enum):
     NONE = enum.auto()
@@ -124,7 +123,7 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
         pins of the interface. This (generally) consumes simulation time.
         """
 
-        _LOGGER.info(f"{str(self)} awaiting tx ({txn})...")
+        _LOG.info(f"{str(self)} awaiting tx ({txn})...")
         if sync:
             await self.re
 
@@ -134,7 +133,7 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
             await self.ro
             self._event_loop()
 
-        _LOGGER.info(f"{str(self)} completed tx")
+        _LOG.info(f"{str(self)} completed tx")
 
     @c.coroutine
     async def rx(self) -> Dict:
@@ -142,7 +141,7 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
         Blocking call to sample/receive physical stimulus on pins of the interface and return the
         equivalent logical output. This (generally) consumes simulation time.
         """
-        _LOGGER.info(f"{str(self)} awaiting rx...")
+        _LOG.info(f"{str(self)} awaiting rx...")
 
          # TODO: (redd@) Sync here?
 
@@ -153,5 +152,5 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
             self._event_loop()
 
         out = self._output()
-        _LOGGER.info(f"{str(self)} completed rx: {out}")
+        _LOG.info(f"{str(self)} completed rx: {out}")
         return out

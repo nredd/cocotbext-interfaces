@@ -3,26 +3,11 @@ import enum
 import logging
 from typing import Optional, Dict, Set
 
-
-import cocotb
-from cocotb.binary import BinaryValue
-from cocotb.drivers import Driver
-from cocotb.monitors import Monitor
-from cocotb.decorators import coroutine
-from cocotb.handle import SimHandleBase
-from cocotb.log import SimLog
-from cocotb.triggers import RisingEdge, ReadOnly
-
-
+import cocotb as c
+import cocotb.triggers as ct
 import cocotbext.interfaces as ci
-import cocotbext.interfaces.signal as cis
-import cocotbext.interfaces.model as cim
-from cocotbext.interfaces import BaseInterface, InterfacePropertyError
-from cocotbext.interfaces.avalon import (
-    streaming as cias
-)
 
-_LOGGER = SimLog(f"cocotbext.interfaces.avalon")
+_LOGGER = c.SimLog(f"cocotbext.interfaces.avalon")
 _LOGGER.setLevel(logging.INFO)
 
 class SynchronousEdges(enum.Enum):
@@ -31,15 +16,15 @@ class SynchronousEdges(enum.Enum):
     BOTH = enum.auto()
 
 
-class Clock(BaseInterface):
+class Clock(ci.core.BaseInterface):
     """
     Represents an Avalon Clock interface.
     """
 
     @classmethod
-    def specification(cls) -> Set[cis.Signal]:
+    def specification(cls) -> Set[ci.signal.Signal]:
         return {
-            cis.Signal('clk', meta=True, required=True)
+            ci.signal.Signal('clk', meta=True, required=True)
         }
 
     def __init__(self, *args,
@@ -47,7 +32,7 @@ class Clock(BaseInterface):
                  **kwargs) -> None:
         # TODO: (redd@) is associatedDirectClock needed? could be used to specify _clock domains
         if rate is not None and not 2 ** 32 - 1 >= rate >= 0:
-            raise InterfacePropertyError(
+            raise ci.InterfacePropertyError(
                 f"{str(self)} spec. defines clockRate as 0-4294967295, was provided {rate}"
             )
 
@@ -61,16 +46,16 @@ class Clock(BaseInterface):
     def rate_known(self) -> bool: return self._rate is not None
 
 
-class Reset(BaseInterface):
+class Reset(ci.core.BaseInterface):
     """
     Represents an Avalon Reset interface.
     """
 
     @classmethod
-    def specification(cls) -> Set[cis.Signal]:
+    def specification(cls) -> Set[ci.signal.Signal]:
         return {
-            cis.Control('reset', required=True, flow_vals={False}, fix_vals={True}),
-            cis.Control('reset_req', precedence=1),
+            ci.signal.Control('reset', required=True, flow_vals={False}, fix_vals={True}),
+            ci.signal.Control('reset_req', precedence=1),
         }
 
     def __init__(self, *args,
@@ -91,7 +76,7 @@ class Reset(BaseInterface):
     def edges(self) -> SynchronousEdges: return self._edges
 
 
-class BaseSynchronousInterface(BaseInterface, metaclass=abc.ABCMeta):
+class BaseSynchronousInterface(ci.core.BaseInterface, metaclass=abc.ABCMeta):
     """
     Represents a synchronous Avalon interface, which are defined to have associated
     Avalon Clock, Reset interfaces.
@@ -109,12 +94,12 @@ class BaseSynchronousInterface(BaseInterface, metaclass=abc.ABCMeta):
 
     # TODO: (redd@) Rename? is ambig
     @property
-    def clock(self) -> SimHandleBase: return self._clock['clk'].handle
+    def clock(self) -> c.handle.SimHandleBase: return self._clock['clk'].handle
     @property
-    def reset(self) -> SimHandleBase: return self._reset['reset'].handle
+    def reset(self) -> c.handle.SimHandleBase: return self._reset['reset'].handle
 
 
-class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
+class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
     """
     Represents a model for synchronous Avalon interfaces, which are defined to have associated
     Avalon Clock, Reset interfaces.
@@ -122,17 +107,17 @@ class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def __init__(self, itf: BaseSynchronousInterface, *args, **kwargs) -> None:
-
+        self.re = ct.RisingEdge(itf.clock)
+        self.ro = ct.ReadOnly()
         super().__init__(itf, *args, **kwargs)
-        self.re = RisingEdge(itf.clock)
-        self.ro = ReadOnly()
+
     # TODO: (redd@) Add 'initialize', abstract coroutine to set signals to default
     # TODO: (redd@) Add reset coroutine
     @property
     def itf(self) -> BaseSynchronousInterface:
         return self._itf
 
-    @coroutine
+    @c.coroutine
     async def tx(self, txn: Dict, sync: bool = True) -> None:
         """
         Blocking call to transmit a logical input as physical stimulus, driving
@@ -151,7 +136,7 @@ class BaseSynchronousModel(cim.BaseModel, metaclass=abc.ABCMeta):
 
         _LOGGER.info(f"{str(self)} completed tx")
 
-    @coroutine
+    @c.coroutine
     async def rx(self) -> Dict:
         """
         Blocking call to sample/receive physical stimulus on pins of the interface and return the

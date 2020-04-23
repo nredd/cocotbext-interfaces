@@ -1,55 +1,52 @@
 #!/usr/bin/env python3
 """Test to demonstrate functionality of the avalon basic streaming interface"""
 
-import logging
 import random
-import struct
-import sys
 
-import cocotb
-from cocotb.binary import BinaryValue
-from cocotb.drivers import BitDriver
-from cocotb.triggers import RisingEdge, Timer
-from cocotb.clock import Clock
-from cocotb.scoreboard import Scoreboard
-from cocotb.generators.bit import wave
+import cocotb as c
+import cocotb.binary as cb
+import cocotb.clock as cc
+import cocotb.drivers as cd
+import cocotb.generators as cg
+import cocotb.scoreboard as cs
+import cocotb.triggers as ct
 
-from cocotbext.interfaces.avalon.streaming import StreamingDriver, StreamingMonitor
+from cocotbext.interfaces.avalon.streaming import StreamingMonitor, StreamingDriver
 
 class AvalonSTTB(object):
     """Testbench for avalon basic stream"""
     def __init__(self, dut):
         self.dut = dut
-        self.clkedge = RisingEdge(dut.clk)
+        self.clkedge = ct.RisingEdge(dut.clk)
 
         self.st_source = StreamingDriver(self.dut, bus_name="asi")
         self.st_sink = StreamingMonitor(self.dut, bus_name="aso")
-        self.scoreboard = Scoreboard(self.dut, fail_immediately=True)
+        self.scoreboard = cs.Scoreboard(self.dut, fail_immediately=True)
 
         self.expected_output = []
         self.scoreboard.add_interface(self.st_sink, self.expected_output)
 
-        self.backpressure = BitDriver(self.dut.aso_ready, self.dut.clk)
+        self.backpressure = cd.BitDriver(self.dut.aso_ready, self.dut.clk)
 
-    @cocotb.coroutine
+    @c.coroutine
     async def initialise(self):
 
         self.dut.aso_ready <= 1
         self.dut.asi_valid <= 0
         self.dut.asi_data <= 0
-        cocotb.fork(Clock(self.dut.clk, 2).start())
+        c.fork(cc.Clock(self.dut.clk, 2).start())
         self.dut.reset <= 1
-        await Timer(10)
+        await ct.Timer(10)
         self.dut.reset <= 0
-        await Timer(10)
+        await ct.Timer(10)
 
 
-    @cocotb.coroutine
+    @c.coroutine
     async def send_data(self, data):
         self.expected_output.append(data)
         await self.st_source.send(data)
 
-@cocotb.test()
+@c.test()
 async def test_avalon_stream(dut):
     """Test stream of avalon data"""
 
@@ -60,7 +57,7 @@ async def test_avalon_stream(dut):
     for _ in range(20):
         data = {
             'data': [
-                BinaryValue(value=random.randint(0,(2^7)-1))
+                cb.BinaryValue(value=random.randint(0,(2^7)-1))
                 for _ in range(random.randint(0,100))
             ]
         }

@@ -1,9 +1,9 @@
 import abc
 from typing import Dict, Optional, Callable
 
+import cocotb as c
 from cocotb.drivers import Driver
 from cocotb.monitors import Monitor
-from cocotb.decorators import coroutine
 
 # TODO: (redd@) Add type annotations
 class BaseDriver(Driver, metaclass=abc.ABCMeta):
@@ -24,7 +24,7 @@ class BaseDriver(Driver, metaclass=abc.ABCMeta):
     @property
     def model(self): return self._model
 
-    @coroutine
+    @c.coroutine
     async def _driver_send(self, txn: Dict, sync: bool = True) -> None:
         """Implementation for BaseDriver.
 
@@ -54,7 +54,7 @@ class BaseMonitor(Monitor, metaclass=abc.ABCMeta):
     @property
     def model(self): return self._model
 
-    @coroutine
+    @c.coroutine
     async def _monitor_recv(self) -> None:
         """Implementation for BaseMonitor"""
         txn = await self.model.rx()

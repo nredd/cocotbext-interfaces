@@ -3,38 +3,27 @@ import math
 import warnings
 from typing import List, Optional, Set, Callable
 
-
-from cocotb.binary import BinaryValue
-from cocotb.drivers import Driver
-from cocotb.monitors import Monitor
-from cocotb.decorators import coroutine
-from cocotb.handle import SimHandleBase
-from cocotb.log import SimLog
-from cocotb.triggers import RisingEdge, ReadOnly
-
+import cocotb.binary as cb
 import cocotbext.interfaces as ci
-import cocotbext.interfaces.adapters as ciad
 import cocotbext.interfaces.avalon as cia
-import cocotbext.interfaces.decorators as cid
-import cocotbext.interfaces.signal as cis
 
 class StreamingInterface(cia.BaseSynchronousInterface):
 
     @classmethod
-    def specification(cls) -> Set[cis.Signal]:
+    def specification(cls) -> Set[ci.signal.Signal]:
         return {
-            cis.Signal('channel', widths={x + 1 for x in range(128)}, logical_type=int),
-            cis.Signal(
+            ci.signal.Signal('channel', widths={x + 1 for x in range(128)}, logical_type=int),
+            ci.signal.Signal(
                 'data',
                 widths={x + 1 for x in range(4096)},
-                logical_type=BinaryValue
+                logical_type=cb.BinaryValue
             ),
-            cis.Signal('error', widths={x + 1 for x in range(256)}, logical_type=int),
-            cis.Signal('empty', widths={x + 1 for x in range(5)}, meta=True, logical_type=int),
-            cis.Signal('endofpacket', meta=True),
-            cis.Signal('startofpacket', meta=True),
-            cis.Control('ready', direction=cis.Direction.TO_PRIMARY, max_allowance=8, max_latency=8),
-            cis.Control('valid', precedence=1),
+            ci.signal.Signal('error', widths={x + 1 for x in range(256)}, logical_type=int),
+            ci.signal.Signal('empty', widths={x + 1 for x in range(5)}, meta=True, logical_type=int),
+            ci.signal.Signal('endofpacket', meta=True),
+            ci.signal.Signal('startofpacket', meta=True),
+            ci.signal.Control('ready', direction=ci.signal.Direction.TO_PRIMARY, max_allowance=8, max_latency=8),
+            ci.signal.Control('valid', precedence=1),
         }
 
     def __init__(self, *args,
@@ -195,10 +184,10 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             return [ed[i] for i in range(len(ed)) if mask & 2 ** i]
         return None
 
-    def mask_data(self, data: BinaryValue, empty: int) -> BinaryValue:
+    def mask_data(self, data: cb.BinaryValue, empty: int) -> cb.BinaryValue:
         """Returns data signal masked according to empty signal. """
         be = self.first_symbol_in_higher_order_bits
-        vec = BinaryValue(bigEndian=be)
+        vec = cb.BinaryValue(bigEndian=be)
         val = data.value.binstr[:-empty] if be else data.value.binstr[empty:]
         vec.assign(val)
         if not vec.is_resolvable:
@@ -247,13 +236,13 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def __init__(self, itf: StreamingInterface, *args, **kwargs) -> None:
         # TODO: (redd@) Add in_packet_timeout logic
+        self.in_pkt = False if itf.packets else None
         super().__init__(itf, *args, **kwargs)
-        self.in_pkt = False if self.itf.packets else None
 
     @property
     def itf(self) -> StreamingInterface: return self._itf
 
-    @cid.reaction('reset', True)
+    @ci.decorators.reaction('reset', True)
     def reset(self):
         self.in_pkt = False if self.itf.packets else None
 
@@ -263,15 +252,15 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
 class PassiveSinkModel(BaseStreamingModel):
 
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, primary=False, **kwargs)
         self.prev_channel = None
+        super().__init__(*args, primary=False, **kwargs)
 
-    @cid.reaction('reset', True)
+    @ci.decorators.reaction('reset', True)
     def reset(self):
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
-    @cid.reaction('valid', True, force=True)
+    @ci.decorators.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
 
         channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
@@ -324,7 +313,7 @@ class PassiveSinkModel(BaseStreamingModel):
             self.busy = False
 
 
-class StreamingMonitor(ciad.BaseMonitor):
+class StreamingMonitor(ci.adapters.BaseMonitor):
 
     def __init__(self, *args, callback: Optional[Callable] = None, **kwargs) -> None:
         """Implementation for AvalonST."""
@@ -341,7 +330,7 @@ class SourceModel(BaseStreamingModel):
 
     # TODO: (redd@) Rewrite w filters
 
-    @cid.reaction('valid', False)
+    @ci.decorators.reaction('valid', False)
     def assert_valid(self) -> None:
         # Unforced reaction, so must manually assert valid if not generated
         if not self.itf['valid'].generated:
@@ -349,7 +338,7 @@ class SourceModel(BaseStreamingModel):
         if self.in_pkt is not None and max(len(b) for b in self.buff.values()) > 0:
             self.itf['startofpacket'].drive(True)
 
-    @cid.reaction('valid', True, force=True)
+    @ci.decorators.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
 
         channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None
@@ -379,7 +368,7 @@ class SourceModel(BaseStreamingModel):
                 self.itf['valid'].drive(False)
             self.busy = False
 
-class StreamingDriver(ciad.BaseDriver):
+class StreamingDriver(ci.adapters.BaseDriver):
 
     def __init__(self, *args, **kwargs) -> None:
         """Implementation for AvalonST."""

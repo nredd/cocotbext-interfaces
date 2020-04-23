@@ -1,29 +1,24 @@
 import abc
-import copy
-import functools
+import collections
+import inspect
 import itertools
 import logging
-import sys
-from collections import deque
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
-import transitions
-from cocotb.log import SimLog
-from transitions import State
-from transitions.extensions import HierarchicalGraphMachine
-from transitions.extensions.states import add_state_features, Tags, Volatile
+import cocotb as c
+import transitions as t
+import transitions.extensions as te
+import transitions.extensions.states as tes
 
 import cocotbext.interfaces as ci
-import cocotbext.interfaces.decorators as cid
-import cocotbext.interfaces.signal as cis
 
 # TODO: (redd@) Refactor logger configs
-_LOG = SimLog(f"cocotbext.interfaces.model")
-transitions.core._LOGGER.setLevel(logging.WARNING)
-transitions.core._LOGGER.addHandler(logging.StreamHandler(sys.stdout))
+_LOG = c.SimLog(f"cocotbext.interfaces.model")
+t.core._LOGGER.setLevel(logging.WARNING)
+t.core._LOGGER.addHandler(logging.StreamHandler())
 
 
-class Behavioral(State):
+class Behavioral(t.State):
     """
     Collects attributes associated with a given `State`, as needed for behavioral modelling.
 
@@ -53,8 +48,8 @@ class Behavioral(State):
     # TODO: (redd@) Anything fun to add here?
 
 
-@add_state_features(Tags, Volatile, Behavioral)
-class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
+@tes.add_state_features(tes.Tags, tes.Volatile, Behavioral)
+class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
 
     def __str__(self):
@@ -65,15 +60,14 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
                f"reactions={repr(self.reactions)}, nest={self._elaborated.items()})>"
 
     @abc.abstractmethod
-    def __init__(self, itf: ci.BaseInterface, primary: Optional[bool] = None) -> None:
+    def __init__(self, itf: ci.core.BaseInterface, primary: Optional[bool] = None) -> None:
         """Should be extended by child class."""
 
-        self._reactions = set()
         self._itf = itf
 
         self.busy = None
         self._primary = primary
-        self._buff = {k: deque() for k in self.itf._txn(primary=self.primary)}
+        self._buff = {k: collections.deque() for k in self.itf._txn(primary=self.primary)}
 
         self._elaborated = self._elaborate()
 
@@ -90,22 +84,15 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         _LOG.info(f"New {repr(self)}")
 
     @property
-    def itf(self) -> ci.BaseInterface:
+    def itf(self) -> ci.core.BaseInterface:
         return self._itf
 
     @property
-    def reactions(self) -> Set[cid.reaction]:
-        return self._reactions
+    def reactions(self) -> Set:
+        found = [(getattr(self, d).cname, getattr(self, d).val, getattr(self, d).force, getattr(self, d))
+                 for d in dir(self) if  callable(getattr(self, d)) and hasattr(getattr(self, d), 'reaction')]
 
-    def _add_reaction(self, val: cid.reaction) -> None:
-        if any(r.cname == val.cname and r.force and val.force for r in self.reactions):
-            raise ValueError(f"At most one control value reaction may be forced")
-        if val in self.reactions:
-            next(iter(self.reactions)).fns.extend(val.fns)
-        else:
-            self.reactions.add(val)
-        _LOG.info(f"{str(self)} applied: {repr(val)}")
-
+        return set(found)
 
     # TODO: (redd@) cache this after init
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
@@ -173,7 +160,7 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
                     f.append(i)
             return f
 
-        def nestify(ctrl: cis.Control, cond: List, infl: List, react: List) -> Dict:
+        def nestify(ctrl: ci.signal.Control, cond: List, infl: List, react: List) -> Dict:
             """
             Returns a nest representing the behavioral [sub-]state space induced by a given Control.
 
@@ -213,7 +200,7 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
 
                 # Include reaction if defined
                 match = next(
-                    (r.fns for r in self.reactions if r.cname == ctrl.name and r.val == val), None)
+                    (r[3] for r in self.reactions if r[0] == ctrl.name and r[1] == val), None)
                 react = ([] if react is None else react) + ([] if match is None else match)
 
                 n = node(
@@ -314,7 +301,7 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
             _LOG.debug(f"New control-nest: {n}")
             return n
 
-        def add_level(bh, controls: Iterable[cis.Control]):
+        def add_level(bh, controls: Iterable[ci.signal.Control]):
             """
             Appends behavior [to an existing self] corresponding to a set of controls along a
             precedence level. As defined, a set of Controls within a precedence level can be
@@ -331,7 +318,7 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
             for c in controls:
                 _LOG.debug(f"{str(self)} preprocessing: {str(c)}")
                 match = next(
-                    (r for r in self.reactions if r.cname == c.name and r.force),
+                    (r for r in self.reactions if r[0] == c.name and r[2]),
                     None)
                 if c.instantiated:
                     cond[c.name] = {
@@ -340,7 +327,7 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
                         'flow': lambda: c.capture() in c.flow_vals
                     }
                 elif match is not None: # Forced reactions create 'virtual' precedence levels
-                    _LOG.debug(f"{str(self)} inserting forced reaction: {repr(match)}")
+                    _LOG.debug(f"{str(self)} inserting forced reaction: {match}")
                     for f in flatten(get_flowers(bh)):
                         f['tags'].remove('flow')
                         f['initial'] = c.name.upper()
@@ -350,7 +337,7 @@ class BaseModel(HierarchicalGraphMachine, metaclass=abc.ABCMeta):
                                 tags=['flow'],
                                 influences=f['influences'],
                                 conditions=f['conditions'],
-                                reactions=f['reactions'] + [match.fns]
+                                reactions=f['reactions'] + [match[3]]
                             )
                         ]
                         f['transitions'] = []

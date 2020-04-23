@@ -1,15 +1,14 @@
-import functools
 import enum
+import functools
 import warnings
 from typing import Optional, Type, Union, Set, Iterator, Callable
 
-from cocotb.binary import BinaryValue
-from cocotb.handle import SimHandleBase
-from cocotb.log import SimLog
+import cocotb as c
+import cocotb.binary as cb
 
 import cocotbext.interfaces as ci
 
-_LOGGER = SimLog(f"cocotbext.interfaces.signal")
+_LOGGER = c.SimLog(f"cocotbext.interfaces.signal")
 
 class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),
@@ -29,7 +28,7 @@ class Signal(object):
     """
 
     # allowed types for logical_type pulled from handle.ModifiableObject
-    _allowed = Union[bool, int, BinaryValue]
+    _allowed = Union[bool, int, cb.BinaryValue]
 
 
     def __str__(self):
@@ -79,7 +78,7 @@ class Signal(object):
             self.filter(val)
 
         if not self.logic_active_high:
-            if self.logical_type == BinaryValue:
+            if self.logical_type == cb.BinaryValue:
                 val.assign(~val.integer & len(self.handle))
             else:  # Valid for bool and int
                 val = ~val & len(self.handle)
@@ -170,9 +169,9 @@ class Signal(object):
         return self._handle
 
     @handle.setter
-    def handle(self, val: SimHandleBase):
+    def handle(self, val: c.handle.SimHandleBase):
         if not len(val) in self.widths:
-            raise ci.InterfacePropertyError(
+                raise ci.InterfacePropertyError(
                 f"Invalid width ({len(val)}) for {str(val)}"
             )
 
@@ -188,7 +187,6 @@ class Signal(object):
     def filter(self, val: Callable):
         # TODO: (redd@) Validation
         self._filter = val
-
         _LOGGER.debug(f"{str(self)} set filter: {repr(val)}")
 
 
@@ -205,22 +203,12 @@ class Control(Signal):
     """
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}(\n" \
-               f"name={self.name},\n " \
-               f"required={self.required},\n " \
-               f"instantiated={self.instantiated},\n " \
-               f"active-high={self.logic_active_high},\n " \
-               f"widths={self.widths},\n " \
-               f"direction={self.direction},\n " \
-               f"meta={self.meta},\n " \
-               f"logical-type={self.logical_type},\n " \
-               f"handle={self.handle},\n " \
-               f"filter={self.filter}\n, " \
-               f"allowance={self.allowance}\n, " \
-               f"latency={self.latency}\n, " \
-               f"precedence={self.precedence}\n, " \
-               f"generated={self.generated}\n " \
-               f")>\n"
+        return f"<{self.__class__.__name__}(name={self.name},required={self.required}," \
+               f"instantiated={self.instantiated},active-high={self.logic_active_high}," \
+               f"widths={self.widths},direction={self.direction},meta={self.meta}," \
+               f"logical-type={self.logical_type},handle={self.handle},filter={self.filter}," \
+               f"allowance={self.allowance},latency={self.latency},precedence={self.precedence}," \
+               f"generated={self.generated})>"
 
     def __eq__(self, other):
         if not isinstance(other, Control):

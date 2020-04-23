@@ -1,13 +1,14 @@
 import abc
 import enum
-import logging
 from typing import Optional, Dict, Set
 
 import cocotb as c
-import cocotb.triggers as ct
 import cocotbext.interfaces as ci
+from cocotb.triggers import ReadOnly, RisingEdge
 
-_LOG = c.SimLog(__name__)
+_LOG = ci._LOG.getChild(__name__)
+_LOG.propagate = True
+_LOG.handlers.clear()
 
 class SynchronousEdges(enum.Enum):
     NONE = enum.auto()
@@ -106,8 +107,8 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def __init__(self, itf: BaseSynchronousInterface, *args, **kwargs) -> None:
-        self.re = ct.RisingEdge(itf.clock)
-        self.ro = ct.ReadOnly()
+        self.re = RisingEdge(itf.clock)
+        self.ro = ReadOnly()
         super().__init__(itf, *args, **kwargs)
 
     # TODO: (redd@) Add 'initialize', abstract coroutine to set signals to default

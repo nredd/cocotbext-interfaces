@@ -11,7 +11,7 @@ import cocotb.generators as cg
 import cocotb.scoreboard as cs
 import cocotb.triggers as ct
 
-from cocotbext.interfaces.avalon.streaming import StreamingMonitor, StreamingDriver
+import cocotbext.interfaces.avalon.streaming as cias
 
 class AvalonSTTB(object):
     """Testbench for avalon basic stream"""
@@ -19,8 +19,8 @@ class AvalonSTTB(object):
         self.dut = dut
         self.clkedge = ct.RisingEdge(dut.clk)
 
-        self.st_source = StreamingDriver(self.dut, bus_name="asi")
-        self.st_sink = StreamingMonitor(self.dut, bus_name="aso")
+        self.st_source = cias.StreamingDriver(self.dut, bus_name="asi")
+        self.st_sink = cias.StreamingMonitor(self.dut, bus_name="aso")
         self.scoreboard = cs.Scoreboard(self.dut, fail_immediately=True)
 
         self.expected_output = []

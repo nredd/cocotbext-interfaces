@@ -2,10 +2,8 @@ import abc
 import collections
 import inspect
 import itertools
-import logging
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
-import cocotb as c
 import transitions as t
 import transitions.extensions as te
 import transitions.extensions.nesting as ten
@@ -13,10 +11,14 @@ import transitions.extensions.states as tes
 
 import cocotbext.interfaces as ci
 
-_LOG = c.SimLog(__name__)
-t.core._LOGGER = c.SimLog(f"{__name__}.transitions.core")
-ten._LOGGER = c.SimLog(f"{__name__}.transitions.extensions.nesting")
-tes._LOGGER = c.SimLog(f"{__name__}.transitions.extensions.states")
+_LOG = ci._LOG.getChild(__name__)
+_LOG.propagate = True
+_LOG.handlers.clear()
+
+t.core._LOGGER = ten._LOGGER = tes._LOGGER  = _LOG.getChild(f"transitions")
+_LOG.getChild(f"transitions").disabled = True # TODO: (redd@) no
+_LOG.getChild(f"transitions").propagate = True
+_LOG.getChild(f"transitions").handlers.clear()
 
 class Behavioral(ten.State):
     """
@@ -91,7 +93,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
 
         # TODO: (redd@) make this prettier; default file location?
         # self.get_graph().draw('my_state_diagram.png', prog='dot')
-        _LOG.info(f"New {repr(self)}")
+        _LOG.debug(f"New {repr(self)}")
 
     @property
     def itf(self) -> ci.core.BaseInterface:

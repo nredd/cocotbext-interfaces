@@ -1,6 +1,8 @@
-import cocotb as c
+import cocotbext.interfaces as ci
 
-_LOG = c.SimLog(__name__)
+_LOG = ci._LOG.getChild(__name__)
+_LOG.propagate = True
+_LOG.handlers.clear()
 
 class reaction(object):
     """

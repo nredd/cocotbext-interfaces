@@ -4,11 +4,13 @@ import warnings
 from typing import Optional, Type, Union, Set, Iterator, Callable
 
 import cocotb as c
-import cocotb.binary as cb
+from cocotb.binary import BinaryValue
 
 import cocotbext.interfaces as ci
 
-_LOG = c.SimLog(__name__)
+_LOG = ci._LOG.getChild(__name__)
+_LOG.propagate = True
+_LOG.handlers.clear()
 
 class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),
@@ -28,7 +30,7 @@ class Signal(object):
     """
 
     # allowed types for logical_type pulled from handle.ModifiableObject
-    _allowed = Union[bool, int, cb.BinaryValue]
+    _allowed = Union[bool, int, BinaryValue]
 
 
     def __str__(self):
@@ -78,7 +80,7 @@ class Signal(object):
             self.filter(val)
 
         if not self.logic_active_high:
-            if self.logical_type == cb.BinaryValue:
+            if self.logical_type == BinaryValue:
                 val.assign(~val.integer & len(self.handle))
             else:  # Valid for bool and int
                 val = ~val & len(self.handle)
@@ -127,7 +129,7 @@ class Signal(object):
         self._handle = None
         self._filter = None
 
-        _LOG.info(f"New {repr(self)}")
+        _LOG.debug(f"New {repr(self)}")
 
 
     # Read-only

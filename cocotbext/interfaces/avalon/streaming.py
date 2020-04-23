@@ -1,14 +1,17 @@
 import abc
+
 import math
+
 import warnings
 from typing import List, Optional, Set, Callable
 
-import cocotb as c
-import cocotb.binary as cb
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.avalon as cia
+from cocotb.binary import BinaryValue
 
-_LOG = c.SimLog(__name__)
+_LOG = ci._LOG.getChild(__name__)
+_LOG.propagate = True
+_LOG.handlers.clear()
 
 class StreamingInterface(cia.BaseSynchronousInterface):
 
@@ -19,7 +22,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             ci.signal.Signal(
                 'data',
                 widths={x + 1 for x in range(4096)},
-                logical_type=cb.BinaryValue
+                logical_type=BinaryValue
             ),
             ci.signal.Signal('error', widths={x + 1 for x in range(256)}, logical_type=int),
             ci.signal.Signal('empty', widths={x + 1 for x in range(5)}, meta=True, logical_type=int),
@@ -187,10 +190,10 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             return [ed[i] for i in range(len(ed)) if mask & 2 ** i]
         return None
 
-    def mask_data(self, data: cb.BinaryValue, empty: int) -> cb.BinaryValue:
+    def mask_data(self, data: BinaryValue, empty: int) -> BinaryValue:
         """Returns data signal masked according to empty signal. """
         be = self.first_symbol_in_higher_order_bits
-        vec = cb.BinaryValue(bigEndian=be)
+        vec = BinaryValue(bigEndian=be)
         val = data.value.binstr[:-empty] if be else data.value.binstr[empty:]
         vec.assign(val)
         if not vec.is_resolvable:
@@ -238,6 +241,7 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def __init__(self, itf: StreamingInterface, *args, **kwargs) -> None:
+
         # TODO: (redd@) Add in_packet_timeout logic
         self.in_pkt = False if itf.packets else None
         super().__init__(itf, *args, **kwargs)
@@ -250,13 +254,12 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
         self.in_pkt = False if self.itf.packets else None
 
 
-# TODO: (redd@) Make sure all required reactions needed, esp for driving controls when necessary
 # TODO: (redd@) Add ActiveSinkModel
 class PassiveSinkModel(BaseStreamingModel):
 
     def __init__(self, *args, **kwargs) -> None:
-        self.prev_channel = None
         super().__init__(*args, primary=False, **kwargs)
+        self.prev_channel = None
 
     @ci.decorators.reaction('reset', True)
     def reset(self):

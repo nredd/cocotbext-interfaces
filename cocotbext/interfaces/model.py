@@ -2,14 +2,14 @@ import abc
 import collections
 import inspect
 import itertools
-from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
+from typing import List, Optional, Set, Dict, Iterable, Callable, Deque, Awaitable
 
 import cocotb as c
 import transitions as t
 import transitions.extensions as te
 import transitions.extensions.nesting as ten
 import transitions.extensions.states as tes
-from cocotb.triggers import NextTimeStep, ReadOnly, Event
+from cocotb.triggers import NextTimeStep, ReadOnly, Event, Trigger
 
 import cocotbext.interfaces as ci
 
@@ -65,7 +65,7 @@ class Behavioral(ten.State):
 
 
 @tes.add_state_features(tes.Tags, tes.Volatile, Behavioral)
-class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
+class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) Get GraphMachine working
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
 
     def __str__(self):
@@ -82,7 +82,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         self._itf = itf
 
         self.busy = False
-        self.busy_event = Event(f"{str(self)}_busy")
+        self.busy_event = Event(f"{self.__class__.__name__}_busy")
 
         self._primary = primary
         self._buff = {k: collections.deque() for k in self.itf._txn(primary=self.primary)}
@@ -428,68 +428,92 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
     def buff(self) -> Dict[str, Deque]:
         return self._buff
 
-    # TODO: (redd@) Add 'remaining_chunks' or equiv method to determine remaining busy cycles
+    @property
+    def nchunks(self) -> int: return max(len(d) for d in self.buff.values()) if self.buff else 0
 
-    def _clear(self) -> None:
-        [v.clear() for v in self.buff.values()]
-        _LOG.debug(f"{str(self)} buffer cleared")
+    def _flush(self) -> Dict[str, List]:
+        out = {k: list(v) for k,v in self.buff.items()}
+        [d.clear() for d in self.buff.values()]
+        _LOG.debug(f"{str(self)} buffer flushed: {out}")
+        return out
 
-    @c.function
-    def _acquire(self):
+    def _load(self, txn: Dict[str, Iterable]) -> None:
+        for k, v in txn.items():
+            self.buff[k].extendleft(v)
+        _LOG.debug(f"{str(self)} loaded buffer ({txn})")
+
+
+    @c.coroutine
+    async def acquire(self):
         if self.busy:
-            yield self.busy_event.wait()
+            await self.busy_event.wait()
         self.busy_event.clear()
         self.busy = True
 
-    def _release(self):
+    def release(self):
         self.busy = False
         self.busy_event.set()
 
-    @c.external
-    def input(self, txn: Dict[str, Iterable]) -> None:
-        """Blocking call to ingest logical input transactions."""
+    @c.coroutine
+    async def input(self, txn: Dict[str, Iterable], trig: Awaitable) -> None:
+        """Blocking call to ingest a[n input] logical transaction."""
 
         if set(txn.keys()) != self.itf._txn(primary=self.primary):
             raise ValueError(
-                f"{str(self)} buffer expects {str(self.itf._txn(primary=self.primary))}"
+                f"{str(self)} expects input format: {str(self.itf._txn(primary=self.primary))}"
             )
 
-        yield self._acquire()
+        await self.acquire()
+        self._load(txn)
 
-        for k, v in txn.items():
-            self.buff[k].extendleft(v)
+        while self.busy:
+            await trig
+            await self._event_loop()
 
-        _LOG.debug(f"{str(self)} buffered input: {txn}")
+        self._flush() # Make sure buffer is empty
 
-    def output(self) -> Dict:
-        """Returns completed logical output transaction."""
-        out = {k: list(v) for k, v in self.buff.items()}
-        self._clear()
-        _LOG.debug(f"{str(self)} buffered output: {out}")
-        return out
+        _LOG.debug(f"{str(self)} completed input")
 
-    @c.external
-    def _event_loop(self) -> None:
+    @c.coroutine
+    async def output(self, trig: Awaitable) -> Dict:
+        """
+        Blocking call to sample simulation stimuli and process (return) the corresponding
+        [output] logical transaction.
+        """
+
+        await self.acquire()
+
+        while self.busy:
+            await trig
+            await self._event_loop()
+
+        txn = self._flush()
+        _LOG.debug(f"{str(self)} completed output: {txn}")
+        return txn
+
+    @c.coroutine
+    async def _event_loop(self) -> None:
         """
         Main event loop for behavioral models.
         """
+        # TODO: (redd@) clean
         # TODO: (redd@) Could use cocotb Events to standardize waiting; don't block until a reaction is available?
-        # TODO: (redd@) Move in readonly/trigger stuff in here
         _LOG.debug(f"{str(self)} looping...")
 
-        yield ReadOnly()
+        await ReadOnly() # Need all signals stabilized while model transitions
         self.trigger('advance')
 
         # TODO: (redd@) Reimplement to consider source (shouldn't error out in beginning of sim w/ lots of undefined signals)
         #if self.state == 'TOP_NULL':
          #   raise ci.InterfaceProtocolError(f"Control context invariant was violated")
 
-        # Delete cached values of influences, execute reactions
-        for c in self.get_state(self.state).influences:
-            self.itf[c].clear()
+        # Delete cached values of influences, execute reactions TODO (redd@): revisit
+        # for c in self.get_state(self.state).influences:
+        #     self.itf[c].clear()
 
+        # TODO: (redd@) Does having reactions as coroutines create scheduling problems for model sampling?
         for fn in self.get_state(self.state).reactions:
-            _LOG.info(f"{str(self)} calling reaction: {str(fn)}")
-            yield fn()
+            _LOG.debug(f"{str(self)} calling reaction: {str(fn)}")
+            await fn()
 
         _LOG.debug(f"{str(self)} looped!")

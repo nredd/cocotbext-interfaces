@@ -18,7 +18,7 @@ class reaction(object):
 
     def __call__(self, f):
         """
-        Apply `cocotb.function` decorator such that reactions may be called within
+        Apply `cocotb.coroutine` decorator such that reactions may be called within
         the event loop (itself a blocking coroutine) of some `BaseModel` object.
         """
         f.reaction = True
@@ -26,7 +26,7 @@ class reaction(object):
         f.val = self.val
         f.force = self.force
         _LOG.info(f"{repr(self)} detected: {repr(f)}")
-        return c.function(f)
+        return c.coroutine(f)
 
     def __repr__(self):
         return f"<{self.__class__.__name__}(cname={self.cname},val={self.val},force={self.force})>"

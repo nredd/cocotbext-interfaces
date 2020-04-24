@@ -344,7 +344,6 @@ class SourceModel(BaseStreamingModel):
     @ci.decorators.reaction('valid', False)
     def assert_valid(self) -> None:
         _LOG.debug(f"{str(self)} in assert_valid cycle")
-        yield NextTimeStep()
 
         # Unforced reaction, so must manually assert valid if not generated
         if not self.itf['valid'].generated:
@@ -354,7 +353,7 @@ class SourceModel(BaseStreamingModel):
 
     @ci.decorators.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
-        _LOG.info(f"{str(self)} in valid cycle")
+        _LOG.debug(f"{str(self)} in valid cycle")
 
         channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None
         data = self.buff['data'].pop() if self.itf['data'].instantiated else None
@@ -362,8 +361,6 @@ class SourceModel(BaseStreamingModel):
         # TODO: (redd@) calculate+drive empty
 
         remaining = max(len(b) for b in self.buff.values())
-
-        yield NextTimeStep()
 
         if channel is not None:
             self.itf['channel'].drive(channel)

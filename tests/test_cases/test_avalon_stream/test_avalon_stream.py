@@ -45,6 +45,7 @@ class AvalonSTTB(object):
     async def send_data(self, data):
         self.expected_output.append(data)
         await self.st_source.send(data)
+        await self.st_sink.wait_for_recv() # TODO: (redd@) timeout
 
 @c.test()
 async def test_avalon_stream(dut):
@@ -63,9 +64,5 @@ async def test_avalon_stream(dut):
         }
 
         await tb.send_data(data)
-        await tb.clkedge
-
-    for _ in range(5):
-        await tb.clkedge
 
     raise tb.scoreboard.result

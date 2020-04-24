@@ -15,10 +15,9 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         return f"<{self.family}-{self.__class__.__name__}>"
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}(entity={str(self.entity)},family={self.family}," \
-               f"signals={repr(self.signals)},floor={str(self.floor)}, ceiling={str(self.ceiling)}," \
-               f"filters={repr(self.filters)})>"
-
+        return f"<{self.__class__.__name__}(entity={str(self.entity)},bus_name={self.bus_name}," \
+               f"family={self.family},signals={repr(self.signals)},floor={str(self.floor)}," \
+               f"ceiling={str(self.ceiling)},filters={repr(self.filters)})>"
 
     def __contains__(self, item):
         """Used for membership testing of `Signal` items."""
@@ -52,6 +51,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
 
         self._entity = entity
         self._family = family.capitalize() if family else None
+        self._bus_name = bus_name
 
         if log_level is not None:
             _LOG.setLevel(log_level)
@@ -67,6 +67,9 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
 
     @property
     def entity(self) -> c.handle.SimHandleBase: return self._entity
+
+    @property
+    def bus_name(self) -> str: return self._bus_name
 
     @property
     def family(self) -> Optional[str]:

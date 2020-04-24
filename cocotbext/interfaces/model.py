@@ -4,10 +4,12 @@ import inspect
 import itertools
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque
 
+import cocotb as c
 import transitions as t
 import transitions.extensions as te
 import transitions.extensions.nesting as ten
 import transitions.extensions.states as tes
+from cocotb.triggers import NextTimeStep, ReadOnly, Event
 
 import cocotbext.interfaces as ci
 
@@ -15,10 +17,15 @@ _LOG = ci._LOG.getChild(__name__)
 _LOG.propagate = True
 _LOG.handlers.clear()
 
-t.core._LOGGER = ten._LOGGER = tes._LOGGER  = _LOG.getChild(f"transitions")
-_LOG.getChild(f"transitions").disabled = True # TODO: (redd@) no
-_LOG.getChild(f"transitions").propagate = True
-_LOG.getChild(f"transitions").handlers.clear()
+t.core._LOGGER = _LOG.getChild(f"transitions")
+t.core._LOGGER.propagate = True
+t.core._LOGGER.handlers.clear()
+ten._LOGGER = t.core._LOGGER.getChild(f"nesting")
+ten._LOGGER.propagate = True
+ten._LOGGER.handlers.clear()
+tes._LOGGER = t.core._LOGGER.getChild(f"states")
+tes._LOGGER.propagate = True
+tes._LOGGER.handlers.clear()
 
 class Behavioral(ten.State):
     """
@@ -74,7 +81,9 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
 
         self._itf = itf
 
-        self.busy = None
+        self.busy = False
+        self.busy_event = Event(f"{str(self)}_busy")
+
         self._primary = primary
         self._buff = {k: collections.deque() for k in self.itf._txn(primary=self.primary)}
         self._reactions = set(
@@ -82,7 +91,6 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
             if getattr(d[1].__func__, 'reaction', False)
         )
         self._elaborated = self._elaborate()
-
         # TODO: (redd@) Get send_event working
         super().__init__(
             states=self._elaborated,
@@ -405,7 +413,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         self._primary = val
 
     @property
-    def busy(self) -> Optional[bool]:
+    def busy(self) -> bool:
         """
         Returns True if model is currently processing contents of `self.buff`, False if
         model is finished, and, None if model is idle.
@@ -413,7 +421,7 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
         return self._busy
 
     @busy.setter
-    def busy(self, val: Optional[bool]) -> None:
+    def busy(self, val: bool) -> None:
         self._busy = val
 
     @property
@@ -424,49 +432,64 @@ class BaseModel(te.HierarchicalGraphMachine, metaclass=abc.ABCMeta):
 
     def _clear(self) -> None:
         [v.clear() for v in self.buff.values()]
-        self.busy = None
         _LOG.debug(f"{str(self)} buffer cleared")
 
-    def _input(self, txn: Dict[str, Iterable]) -> None:
-        """Buffer logical input transactions."""
+    @c.function
+    def _acquire(self):
         if self.busy:
-            raise ci.InterfaceProtocolError(f"{str(self)} cannot ingest logical input if busy")
+            yield self.busy_event.wait()
+        self.busy_event.clear()
+        self.busy = True
+
+    def _release(self):
+        self.busy = False
+        self.busy_event.set()
+
+    @c.external
+    def input(self, txn: Dict[str, Iterable]) -> None:
+        """Blocking call to ingest logical input transactions."""
 
         if set(txn.keys()) != self.itf._txn(primary=self.primary):
             raise ValueError(
                 f"{str(self)} buffer expects {str(self.itf._txn(primary=self.primary))}"
             )
 
+        yield self._acquire()
+
         for k, v in txn.items():
             self.buff[k].extendleft(v)
 
-        self.busy = True
         _LOG.debug(f"{str(self)} buffered input: {txn}")
 
-    def _output(self) -> Dict:
+    def output(self) -> Dict:
         """Returns completed logical output transaction."""
-        if self.busy:
-            raise ci.InterfaceProtocolError(f"{str(self)} cannot flush logical output if busy")
-
         out = {k: list(v) for k, v in self.buff.items()}
         self._clear()
         _LOG.debug(f"{str(self)} buffered output: {out}")
         return out
 
+    @c.external
     def _event_loop(self) -> None:
-        """Main event loop for behavioral models."""
+        """
+        Main event loop for behavioral models.
+        """
+        # TODO: (redd@) Could use cocotb Events to standardize waiting; don't block until a reaction is available?
+        # TODO: (redd@) Move in readonly/trigger stuff in here
         _LOG.debug(f"{str(self)} looping...")
+
+        yield ReadOnly()
         self.trigger('advance')
 
-        if self.state == 'TOP_NULL':
-            raise ci.InterfaceProtocolError(f"Control context invariant was violated")
+        # TODO: (redd@) Reimplement to consider source (shouldn't error out in beginning of sim w/ lots of undefined signals)
+        #if self.state == 'TOP_NULL':
+         #   raise ci.InterfaceProtocolError(f"Control context invariant was violated")
 
         # Delete cached values of influences, execute reactions
         for c in self.get_state(self.state).influences:
             self.itf[c].clear()
 
         for fn in self.get_state(self.state).reactions:
-            _LOG.debug(f"{str(self)} calling reaction: {str(fn)}")
-            fn()
+            _LOG.info(f"{str(self)} calling reaction: {str(fn)}")
+            yield fn()
 
         _LOG.debug(f"{str(self)} looped!")

@@ -47,7 +47,7 @@ class BaseMonitor(Monitor, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def __init__(self, model, callback: Optional[Callable] = None) -> None:
         self._model = model
-
+        self.name = model.itf.bus_name
         # TODO: (redd@) self.log
         super().__init__(callback)
 

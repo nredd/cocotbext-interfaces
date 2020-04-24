@@ -5,6 +5,8 @@ import math
 import warnings
 from typing import List, Optional, Set, Callable
 
+from cocotb.triggers import NextTimeStep
+
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.avalon as cia
 from cocotb.binary import BinaryValue
@@ -263,12 +265,14 @@ class PassiveSinkModel(BaseStreamingModel):
 
     @ci.decorators.reaction('reset', True)
     def reset(self):
+        _LOG.debug(f"{str(self)} in reset")
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
     @ci.decorators.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
 
+        _LOG.debug(f"{str(self)} in valid_cycle")
         channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
         data = self.itf['data'].capture() if self.itf['data'].instantiated else None
         empty = self.itf['empty'].capture() if self.itf['empty'].instantiated else None
@@ -339,6 +343,9 @@ class SourceModel(BaseStreamingModel):
 
     @ci.decorators.reaction('valid', False)
     def assert_valid(self) -> None:
+        _LOG.debug(f"{str(self)} in assert_valid cycle")
+        yield NextTimeStep()
+
         # Unforced reaction, so must manually assert valid if not generated
         if not self.itf['valid'].generated:
             self.itf['valid'].drive(True)
@@ -347,6 +354,7 @@ class SourceModel(BaseStreamingModel):
 
     @ci.decorators.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
+        _LOG.info(f"{str(self)} in valid cycle")
 
         channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None
         data = self.buff['data'].pop() if self.itf['data'].instantiated else None
@@ -354,6 +362,8 @@ class SourceModel(BaseStreamingModel):
         # TODO: (redd@) calculate+drive empty
 
         remaining = max(len(b) for b in self.buff.values())
+
+        yield NextTimeStep()
 
         if channel is not None:
             self.itf['channel'].drive(channel)

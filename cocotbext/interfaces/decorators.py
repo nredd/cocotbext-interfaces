@@ -1,3 +1,4 @@
+import cocotb as c
 import cocotbext.interfaces as ci
 
 _LOG = ci._LOG.getChild(__name__)
@@ -16,16 +17,19 @@ class reaction(object):
         self.force = force
 
     def __call__(self, f):
+        """
+        Apply `cocotb.function` decorator such that reactions may be called within
+        the event loop (itself a blocking coroutine) of some `BaseModel` object.
+        """
         f.reaction = True
         f.cname = self.cname
         f.val = self.val
         f.force = self.force
         _LOG.info(f"{repr(self)} detected: {repr(f)}")
-        return f
+        return c.function(f)
 
     def __repr__(self):
         return f"<{self.__class__.__name__}(cname={self.cname},val={self.val},force={self.force})>"
-
 
 class filter(object):
     """

@@ -117,7 +117,7 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
     def itf(self) -> BaseSynchronousInterface:
         return self._itf
 
-    @c.coroutine
+    @c.external
     async def tx(self, txn: Dict, sync: bool = True) -> None:
         """
         Blocking call to transmit a logical input as physical stimulus, driving
@@ -126,18 +126,18 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
 
         _LOG.info(f"{str(self)} awaiting tx ({txn})...")
         if sync:
-            await self.re
+            yield self.re
 
-        self._input(txn)
+        yield self.input(txn)
         while self.busy:
-            await self.re
-            await self.ro
-            self._event_loop()
+            yield self.re
+            yield self._event_loop()
+        self._release()
 
         _LOG.info(f"{str(self)} completed tx")
 
-    @c.coroutine
-    async def rx(self) -> Dict:
+    @c.external
+    def rx(self) -> Dict:
         """
         Blocking call to sample/receive physical stimulus on pins of the interface and return the
         equivalent logical output. This (generally) consumes simulation time.
@@ -146,12 +146,11 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
 
          # TODO: (redd@) Sync here?
 
-        self.busy = True
+        yield self._acquire()
         while self.busy:
-            await self.re
-            await self.ro
-            self._event_loop()
-
-        out = self._output()
+            yield self.re
+            yield self._event_loop()
+        self._release()
+        out = self.output()
         _LOG.info(f"{str(self)} completed rx: {out}")
         return out

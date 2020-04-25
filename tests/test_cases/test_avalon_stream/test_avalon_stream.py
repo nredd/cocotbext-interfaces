@@ -11,7 +11,11 @@ import cocotb.generators as cg
 import cocotb.scoreboard as cs
 import cocotb.triggers as ct
 
+import cocotbext.interfaces as ci
 import cocotbext.interfaces.avalon.streaming as cias
+
+
+_LOG = ci.sim_log(__name__)
 
 class AvalonSTTB(object):
     """Testbench for avalon basic stream"""
@@ -28,24 +32,28 @@ class AvalonSTTB(object):
 
         self.backpressure = cd.BitDriver(self.dut.aso_ready, self.dut.clk)
 
+        _LOG.info(f"New testbench: {self} ")
+
     @c.coroutine
     async def initialise(self):
-
         self.dut.aso_ready <= 1
         self.dut.asi_valid <= 0
         self.dut.asi_data <= 0
         c.fork(cc.Clock(self.dut.clk, 2).start())
         self.dut.reset <= 1
-        await ct.Timer(10)
+        await ct.ClockCycles(self.dut.clk, 10)
         self.dut.reset <= 0
-        await ct.Timer(10)
+        await ct.ClockCycles(self.dut.clk, 10)
+        _LOG.info(f"Initialized")
 
 
     @c.coroutine
     async def send_data(self, data):
+        _LOG.info(f"Sending data: {data}")
         self.expected_output.append(data)
         await self.st_source.send(data)
-        await self.st_sink.wait_for_recv() # TODO: (redd@) timeout
+#        await ct.ClockCycles(self.dut.clk, 2 * len(data['data']))
+        await self.st_sink.wait_for_recv()
 
 @c.test()
 async def test_avalon_stream(dut):

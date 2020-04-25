@@ -2,6 +2,7 @@ import abc
 import collections
 import inspect
 import itertools
+import logging
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque, Awaitable
 
 import cocotb as c
@@ -9,23 +10,14 @@ import transitions as t
 import transitions.extensions as te
 import transitions.extensions.nesting as ten
 import transitions.extensions.states as tes
-from cocotb.triggers import NextTimeStep, ReadOnly, Event, Trigger
+from cocotb.triggers import ReadOnly, Event, NextTimeStep
 
 import cocotbext.interfaces as ci
 
-_LOG = ci._LOG.getChild(__name__)
-_LOG.propagate = True
-_LOG.handlers.clear()
-
-t.core._LOGGER = _LOG.getChild(f"transitions")
-t.core._LOGGER.propagate = True
-t.core._LOGGER.handlers.clear()
-ten._LOGGER = t.core._LOGGER.getChild(f"nesting")
-ten._LOGGER.propagate = True
-ten._LOGGER.handlers.clear()
-tes._LOGGER = t.core._LOGGER.getChild(f"states")
-tes._LOGGER.propagate = True
-tes._LOGGER.handlers.clear()
+_LOG = ci.sim_log(__name__)
+t.core._LOGGER = ci.sim_log(f"{__name__}.transitions")
+ten._LOGGER = ci.sim_log(f"{__name__}.transitions.nesting")
+tes._LOGGER = ci.sim_log(f"{__name__}.transitions.states")
 
 class Behavioral(ten.State):
     """
@@ -296,13 +288,40 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
                     conditions=cond
                 )
 
+            def fix(vals, delayed, cond: List, infl: List, react: List):
+                """
+                Returns a nest encapsulating a set of fix values.
+
+                Args:
+                    vals: List of fix values.
+                """
+
+                c = [value(fv, flow=False, cond=cond, delayed=delayed,
+                           infl=infl, react=react) for fv in vals] + [node(name='INIT')]
+                t = [{'trigger': 'advance',
+                      'source': ['INIT'] + [str(src).upper() for src in vals if src != fv],
+                      'dest': str(fv).upper(),
+                      'conditions': cond + [lambda: sample() == fv]
+                      } for fv in vals]
+
+                return node(
+                    name='FXD',
+                    children=c,
+                    influences=infl,
+                    reactions=react,
+                    initial='INIT',
+                    on_enter=[lambda : self.trigger('advance')],
+                    transitions=t,
+                    conditions=cond
+                )
+
             n = node(
                 name=ctrl.name.upper(),
                 conditions=cond,
                 reactions=react,
                 children=[
-                    flow(ctrl.flow_vals, ctrl.allowance > 0, cond, infl, react),
-                    value('FXD', False, ctrl.latency > 0, cond, infl, react),
+                    flow(ctrl.flow_vals, ctrl.allowance > 0, cond=cond, infl=infl, react=react),
+                    fix(ctrl.fix_vals, ctrl.latency > 0, cond=cond, infl=infl, react=react),
                     node(name='INIT')
                 ],
                 influences=infl,
@@ -363,26 +382,37 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
                 for f in flatten(get_flowers(bh)):
                     _LOG.debug(f"{str(self)} adding to flower ({f})")
                     f['tags'].remove('flow')
-                    f['initial'] = 'INIT'
-                    f['children'] = [node(name='INIT')]
-                    f['on_enter'] = [lambda : self.trigger('advance')]
                     f['transitions'] = []
 
-                    for key, val in cond.items():
-                        mutex = [v['fix'] for k, v in cond.items() if k != key]
+                    if len(cond.keys()) > 1:
+
+                        f['on_enter'] = [lambda : self.trigger('advance')]
+                        for key, val in cond.items():
+                            mutex = [v['fix'] for k, v in cond.items() if k != key]
+                            f['children'].append(
+                                nestify(
+                                    val['obj'],
+                                    f['conditions'] + mutex,
+                                    f['influences'] + list(cond.keys()),
+                                    f['reactions']
+                                )
+                            )
+                            f['transitions'].append(
+                                {'trigger': 'advance',
+                                 'source': [k.upper() for k in cond.keys() if k != key],
+                                 'dest': key.upper(),
+                                 'conditions': mutex}
+                            )
+                    else:
+                        match = next(iter(cond))
+                        f['initial'] = match.upper()
                         f['children'].append(
                             nestify(
-                                val['obj'],
-                                f['conditions'] + mutex,
-                                f['influences'] + list(cond.keys()),
+                                cond[match]['obj'],
+                                f['conditions'],
+                                f['influences'] + [match],
                                 f['reactions']
                             )
-                        )
-                        f['transitions'].append(
-                            {'trigger': 'advance',
-                             'source': ['INIT'] + [k.upper() for k in cond.keys() if k != key],
-                             'dest': key.upper(),
-                             'conditions': mutex + [val['flow']]}
                         )
 
         # Elaborate!
@@ -469,10 +499,11 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
         while self.busy:
             await trig
             await self._event_loop()
+            _LOG.debug(f"{str(self)} in state {self.state}")
 
         self._flush() # Make sure buffer is empty
 
-        _LOG.debug(f"{str(self)} completed input")
+        _LOG.info(f"{str(self)} completed input")
 
     @c.coroutine
     async def output(self, trig: Awaitable) -> Dict:
@@ -486,9 +517,10 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
         while self.busy:
             await trig
             await self._event_loop()
+            _LOG.debug(f"{str(self)} in state {self.state}")
 
         txn = self._flush()
-        _LOG.debug(f"{str(self)} completed output: {txn}")
+        _LOG.info(f"{str(self)} completed output")
         return txn
 
     @c.coroutine
@@ -504,16 +536,14 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
         self.trigger('advance')
 
         # TODO: (redd@) Reimplement to consider source (shouldn't error out in beginning of sim w/ lots of undefined signals)
-        #if self.state == 'TOP_NULL':
-         #   raise ci.InterfaceProtocolError(f"Control context invariant was violated")
+        if self.state == 'TOP_NULL':
+           raise ci.InterfaceProtocolError(f"Control context invariant was violated")
 
         # Delete cached values of influences, execute reactions TODO (redd@): revisit
         # for c in self.get_state(self.state).influences:
         #     self.itf[c].clear()
 
-        # TODO: (redd@) Does having reactions as coroutines create scheduling problems for model sampling?
         for fn in self.get_state(self.state).reactions:
-            _LOG.debug(f"{str(self)} calling reaction: {str(fn)}")
-            await fn()
+            await fn(self) # TODO: (redd@) fix method binding
 
         _LOG.debug(f"{str(self)} looped!")

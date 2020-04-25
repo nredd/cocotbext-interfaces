@@ -11,9 +11,7 @@ import cocotbext.interfaces as ci
 import cocotbext.interfaces.avalon as cia
 from cocotb.binary import BinaryValue
 
-_LOG = ci._LOG.getChild(__name__)
-_LOG.propagate = True
-_LOG.handlers.clear()
+_LOG = ci.sim_log(__name__)
 
 class StreamingInterface(cia.BaseSynchronousInterface):
 
@@ -252,7 +250,7 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
     def itf(self) -> StreamingInterface: return self._itf
 
     @ci.decorators.reaction('reset', True)
-    def reset(self):
+    async def reset(self):
         self.in_pkt = False if self.itf.packets else None
 
 
@@ -264,13 +262,13 @@ class PassiveSinkModel(BaseStreamingModel):
         self.prev_channel = None
 
     @ci.decorators.reaction('reset', True)
-    def reset(self):
+    async def reset(self):
         _LOG.debug(f"{str(self)} in reset")
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
     @ci.decorators.reaction('valid', True, force=True)
-    def valid_cycle(self) -> None:
+    async def valid_cycle(self) -> None:
 
         _LOG.debug(f"{str(self)} in valid_cycle")
         channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
@@ -342,7 +340,7 @@ class SourceModel(BaseStreamingModel):
     # TODO: (redd@) Rewrite w filters
 
     @ci.decorators.reaction('valid', False)
-    def assert_valid(self) -> None:
+    async def assert_valid(self) -> None:
         _LOG.debug(f"{str(self)} in assert_valid cycle")
 
         # Unforced reaction, so must manually assert valid if not generated
@@ -352,7 +350,7 @@ class SourceModel(BaseStreamingModel):
             self.itf['startofpacket'].drive(True)
 
     @ci.decorators.reaction('valid', True, force=True)
-    def valid_cycle(self) -> None:
+    async def valid_cycle(self) -> None:
         _LOG.debug(f"{str(self)} in valid cycle")
 
         channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None

@@ -1,9 +1,7 @@
 import cocotb as c
 import cocotbext.interfaces as ci
 
-_LOG = ci._LOG.getChild(__name__)
-_LOG.propagate = True
-_LOG.handlers.clear()
+_LOG = ci.sim_log(__name__)
 
 class reaction(object):
     """
@@ -17,10 +15,6 @@ class reaction(object):
         self.force = force
 
     def __call__(self, f):
-        """
-        Apply `cocotb.coroutine` decorator such that reactions may be called within
-        the event loop (itself a blocking coroutine) of some `BaseModel` object.
-        """
         f.reaction = True
         f.cname = self.cname
         f.val = self.val

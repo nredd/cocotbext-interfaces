@@ -6,9 +6,7 @@ import cocotb as c
 import cocotbext.interfaces as ci
 from cocotb.triggers import ReadOnly, RisingEdge
 
-_LOG = ci._LOG.getChild(__name__)
-_LOG.propagate = True
-_LOG.handlers.clear()
+_LOG = ci.sim_log(__name__)
 
 class SynchronousEdges(enum.Enum):
     NONE = enum.auto()
@@ -89,7 +87,6 @@ class BaseSynchronousInterface(ci.core.BaseInterface, metaclass=abc.ABCMeta):
 
         self._clock = Clock(entity, family='avalon')
         self._reset = Reset(entity, clock=self._clock, family='avalon')
-        self._specify(self._clock.signals, precedes=True)
         self._specify(self._reset.signals, precedes=True)
 
     # TODO: (redd@) Rename? is ambig
@@ -135,5 +132,4 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
         equivalent logical output. This (generally) consumes simulation time.
         """
 
-        await self.re
         return await self.output(self.re)

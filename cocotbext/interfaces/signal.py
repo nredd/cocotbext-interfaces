@@ -8,9 +8,7 @@ from cocotb.binary import BinaryValue
 
 import cocotbext.interfaces as ci
 
-_LOG = ci._LOG.getChild(__name__)
-_LOG.propagate = True
-_LOG.handlers.clear()
+_LOG = ci.sim_log(__name__)
 
 class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),

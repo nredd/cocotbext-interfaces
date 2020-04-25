@@ -5,9 +5,7 @@ from typing import Set, Optional
 import cocotb as c
 import cocotbext.interfaces as ci
 
-_LOG = ci._LOG.getChild(__name__)
-_LOG.propagate = True
-_LOG.handlers.clear()
+_LOG = ci.sim_log(__name__)
 
 class BaseInterface(object, metaclass=abc.ABCMeta):
 
@@ -85,11 +83,11 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
 
     @property
     def pmin(self) -> Optional[int]:
-        return min(c.precedence for c in self.controls) if self.controls else None
+        return min(self.controls).precedence if self.controls else None
 
     @property
     def pmax(self) -> Optional[int]:
-        return max(c.precedence for c in self.controls) if self.controls else None
+        return max(self.controls).precedence if self.controls else None
 
     @property
     def floor(self) -> Set[ci.signal.Control]:
@@ -99,7 +97,8 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
     def ceiling(self) -> Optional[Set[ci.signal.Control]]:
         return set(c for c in self.controls if c.precedence == self.pmax)
 
-    def _specify(self, spec: Set[ci.signal.Signal], precedes: bool = False,
+    def _specify(self, spec: Set[ci.signal.Signal],
+                 precedes: bool = False,
                  bus_name: Optional[str] = None,
                  bus_separator: str = "_"):
         """
@@ -108,24 +107,31 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         Args:
             spec: `Signal` instances to add to interface specification.
             precedes: Asserted if `Control` instances within `spec` behaviorally-precede those
-            currently specified in self._signals.
+            currently specified in self.controls.
         """
 
         # TODO: (redd@) array_idx; account for naming variations e.g. w/ _n suffix
-        def alias(s: ci.signal.Signal): return (bus_name + bus_separator if bus_name else '') + s.name
+        def alias(s: ci.signal.Signal):
+            return f"{bus_name}{bus_separator}{s.name}" if bus_name else s.name
 
         if not hasattr(self, '_signals'):
             self._signals = set()
 
-        if any(s in self for s in spec):
+        if any(any(s.name == t.name for t in spec) for s in self.signals):
             raise ValueError(f"Duplicate signals specified: {repr(spec)}")
 
         # Consider relative precedence for new Controls
-        cspec = set(s for s in spec if isinstance(s, ci.signal.Control))
-        if cspec:
-            offset = max(cspec).precedence if precedes else (self.pmax if self.pmax else 0)
-            for c in (self.controls if precedes else cspec):
-                c.precedence += offset
+        if any(isinstance(s, ci.signal.Control) for s in spec):
+            offset = max(c for c in spec if isinstance(c, ci.signal.Control)).precedence if precedes else self.pmax
+            if precedes:
+                for c in self.controls:
+                    if offset is not None:
+                        c.precedence += (offset + 1)
+            else:
+                for c in spec:
+                    if isinstance(c, ci.signal.Control):
+                        if offset is not None:
+                            c.precedence += (offset + 1)
 
         # Instantiate signals, bind filters
         for s in spec:
@@ -133,15 +139,17 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                 if s.required:
                     raise ci.InterfaceProtocolError(f"{str(self)} missing required signal: {str(s)}")
 
-                _LOG.debug(f"{str(self)} ignoring optional missing signal: {str(s)}")
-            else:
+                _LOG.info(f"{str(self)} ignoring optional: {str(s)}")
+            elif not s.instantiated:
                 s.handle = getattr(self.entity, alias(s))
-            for f in self.filters:
-                if f.cname == s.name:
-                    s.filter = f
-            self._signals.add(s)
 
-        _LOG.debug(f"{str(self)} applied: {str(spec)}")
+                for f in self._filters:
+                    if f.cname == s.name:
+                        s.filter = f
+
+            self._signals.add(s)
+            _LOG.debug(f"{str(self)} applied: {str(spec)}")
+
 
     def _txn(self, primary: Optional[bool] = None) -> Set[str]:
         """

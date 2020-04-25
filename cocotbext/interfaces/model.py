@@ -14,11 +14,6 @@ from cocotb.triggers import ReadOnly, Event, NextTimeStep
 
 import cocotbext.interfaces as ci
 
-_LOG = ci.sim_log(__name__)
-t.core._LOGGER = ci.sim_log(f"{__name__}.transitions")
-ten._LOGGER = ci.sim_log(f"{__name__}.transitions.nesting")
-tes._LOGGER = ci.sim_log(f"{__name__}.transitions.states")
-
 class Behavioral(ten.State):
     """
     Collects attributes associated with a given `State`, as needed for behavioral modelling.
@@ -57,19 +52,18 @@ class Behavioral(ten.State):
 
 
 @tes.add_state_features(tes.Tags, tes.Volatile, Behavioral)
-class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) Get GraphMachine working
+class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TODO: (redd@) Get GraphMachine working
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
-
-    def __str__(self):
-        return f"<{str(self.itf)}-{self.__class__.__name__}>"
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}(itf={str(self.itf)},primary={self.primary}," \
-               f"reactions={repr(self.reactions)}, nest={self._elaborated.items()})>"
 
     @abc.abstractmethod
     def __init__(self, itf: ci.core.BaseInterface, primary: Optional[bool] = None) -> None:
         """Should be extended by child class."""
+
+        ci.Pretty.__init__(self, shlevel=logging.INFO) # Logging
+
+        t.core._LOGGER = self.log
+        ten._LOGGER = self.log
+        tes._LOGGER = self.log
 
         self._itf = itf
 
@@ -93,7 +87,7 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
 
         # TODO: (redd@) make this prettier; default file location?
         # self.get_graph().draw('my_state_diagram.png', prog='dot')
-        _LOG.debug(f"New {repr(self)}")
+        self.log.debug(f"New {repr(self)}")
 
     @property
     def itf(self) -> ci.core.BaseInterface:
@@ -335,7 +329,7 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
                 ]
             )
 
-            _LOG.debug(f"New control-nest: {n}")
+            self.log.debug(f"New control-nest: {n}")
             return n
 
         def add_level(bh, controls: Iterable[ci.signal.Control]):
@@ -353,7 +347,7 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
             # Control-nest's influences are all other instantiated Controls along/above its precedence level
             cond = {}
             for c in controls:
-                _LOG.debug(f"{str(self)} preprocessing: {str(c)}")
+                self.log.debug(f"{str(self)} preprocessing: {str(c)}")
                 match = next((r for r in self.reactions if r.cname == c.name and r.force), None)
                 if c.instantiated:
                     cond[c.name] = {
@@ -362,7 +356,7 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
                         'flow': lambda: c.capture() in c.flow_vals
                     }
                 elif match is not None: # Forced reactions create 'virtual' precedence levels
-                    _LOG.debug(f"{str(self)} inserting forced reaction: {str(match)}")
+                    self.log.debug(f"{str(self)} inserting forced reaction: {str(match)}")
                     for f in flatten(get_flowers(bh)):
                         f['tags'].remove('flow')
                         f['initial'] = c.name.upper()
@@ -380,7 +374,7 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
 
             if cond: # Elaborate behavior of instantiated Controls, if any
                 for f in flatten(get_flowers(bh)):
-                    _LOG.debug(f"{str(self)} adding to flower ({f})")
+                    self.log.debug(f"{str(self)} adding to flower ({f})")
                     f['tags'].remove('flow')
                     f['transitions'] = []
 
@@ -464,13 +458,13 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
     def _flush(self) -> Dict[str, List]:
         out = {k: list(v) for k,v in self.buff.items()}
         [d.clear() for d in self.buff.values()]
-        _LOG.debug(f"{str(self)} buffer flushed: {out}")
+        self.log.debug(f"{str(self)} buffer flushed: {out}")
         return out
 
     def _load(self, txn: Dict[str, Iterable]) -> None:
         for k, v in txn.items():
             self.buff[k].extendleft(v)
-        _LOG.debug(f"{str(self)} loaded buffer ({txn})")
+        self.log.debug(f"{str(self)} loaded buffer ({txn})")
 
 
     @c.coroutine
@@ -499,11 +493,11 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
         while self.busy:
             await trig
             await self._event_loop()
-            _LOG.debug(f"{str(self)} in state {self.state}")
+            self.log.debug(f"{str(self)} in state {self.state}")
 
         self._flush() # Make sure buffer is empty
 
-        _LOG.info(f"{str(self)} completed input")
+        self.log.info(f"{str(self)} completed input")
 
     @c.coroutine
     async def output(self, trig: Awaitable) -> Dict:
@@ -517,10 +511,10 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
         while self.busy:
             await trig
             await self._event_loop()
-            _LOG.debug(f"{str(self)} in state {self.state}")
+            self.log.debug(f"{str(self)} in state {self.state}")
 
         txn = self._flush()
-        _LOG.info(f"{str(self)} completed output")
+        self.log.info(f"{str(self)} completed output")
         return txn
 
     @c.coroutine
@@ -530,7 +524,7 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
         """
         # TODO: (redd@) clean
         # TODO: (redd@) Could use cocotb Events to standardize waiting; don't block until a reaction is available?
-        _LOG.debug(f"{str(self)} looping...")
+        self.log.debug(f"{str(self)} looping...")
 
         await ReadOnly() # Need all signals stabilized while model transitions
         self.trigger('advance')
@@ -544,6 +538,9 @@ class BaseModel(te.HierarchicalMachine, metaclass=abc.ABCMeta): # TODO: (redd@) 
         #     self.itf[c].clear()
 
         for fn in self.get_state(self.state).reactions:
-            await fn(self) # TODO: (redd@) fix method binding
+            if fn.smode != ReadOnly:
+                await fn.smode()
 
-        _LOG.debug(f"{str(self)} looped!")
+            fn(self) # TODO: (redd@) fix method binding
+
+        self.log.debug(f"{str(self)} looped!")

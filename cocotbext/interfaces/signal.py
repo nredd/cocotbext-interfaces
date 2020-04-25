@@ -8,7 +8,6 @@ from cocotb.binary import BinaryValue
 
 import cocotbext.interfaces as ci
 
-_LOG = ci.sim_log(__name__)
 
 class Direction(enum.Enum):
     FROM_PRIMARY = enum.auto(),
@@ -16,7 +15,7 @@ class Direction(enum.Enum):
     BIDIRECTIONAL = enum.auto(),
 
 
-class Signal(object):
+class Signal(ci.Pretty):
     """
     Representation of an interface signal; an instance may be considered a functional
     specifications of a physically-realizable digital signal to be used by some hardware
@@ -30,16 +29,6 @@ class Signal(object):
     # allowed types for logical_type pulled from handle.ModifiableObject
     _allowed = Union[bool, int, BinaryValue]
 
-
-    def __str__(self):
-        return f"<{self.__class__.__name__}({self.name})>"
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}(name={self.name},required={self.required}," \
-               f"instantiated={self.instantiated},active-high={self.logic_active_high}," \
-               f"widths={self.widths},direction={self.direction},meta={self.meta}," \
-               f"logical-type={str(self.logical_type)},handle={str(self.handle)}," \
-               f"filter={self.filter})>"
 
     def capture(self) -> _allowed:
 
@@ -61,7 +50,7 @@ class Signal(object):
         elif self.logical_type == bool:
             val = bool(val.integer)
 
-        _LOG.debug(f"{str(self)} captured sample: {repr(val)}")
+        self.log.debug(f"{str(self)} captured sample: {repr(val)}")
         return val
 
     def drive(self, val: _allowed) -> None:
@@ -85,7 +74,7 @@ class Signal(object):
 
         val = val if self.logical_type != bool else int(val)
         self.handle <= val
-        _LOG.debug(f"{str(self)} driven to: {repr(val)}")
+        self.log.debug(f"{str(self)} driven to: {repr(val)}")
 
     def __init__(self,
                  name: str, *args,
@@ -101,6 +90,8 @@ class Signal(object):
             name: Name of signal
             default_logical_val: assumed to be the equivalent of logical 0/low on all wires
         """
+
+        ci.Pretty.__init__(self) # Logging
 
 
         if not name:
@@ -127,7 +118,7 @@ class Signal(object):
         self._handle = None
         self._filter = None
 
-        _LOG.debug(f"New {repr(self)}")
+        self.log.debug(f"New {repr(self)}")
 
 
     # Read-only
@@ -177,7 +168,7 @@ class Signal(object):
 
         self._handle = val
 
-        _LOG.debug(f"{str(self)} set handle: {repr(val)}")
+        self.log.debug(f"{str(self)} set handle: {repr(val)}")
 
     @property
     def filter(self):
@@ -187,7 +178,7 @@ class Signal(object):
     def filter(self, val: Callable):
         # TODO: (redd@) Validation
         self._filter = val
-        _LOG.debug(f"{str(self)} set filter: {repr(val)}")
+        self.log.debug(f"{str(self)} set filter: {repr(val)}")
 
 
 @functools.total_ordering
@@ -201,14 +192,6 @@ class Control(Signal):
     Value states which may be behaviorally extended by the nests of `Control`s of lower
     precedence are denoted *flow* states--otherwise, denoted *fixed*.
     """
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}(name={self.name},required={self.required}," \
-               f"instantiated={self.instantiated},active-high={self.logic_active_high}," \
-               f"widths={self.widths},direction={self.direction},meta={self.meta}," \
-               f"logical-type={self.logical_type},handle={self.handle},filter={self.filter}," \
-               f"allowance={self.allowance},latency={self.latency},precedence={self.precedence}," \
-               f"generated={self.generated})>"
 
     def __eq__(self, other):
         if not isinstance(other, Control):
@@ -299,7 +282,7 @@ class Control(Signal):
         if not self._max_allowance >= val >= 0:
             raise ValueError(f"Outside defined range")
         self._allowance = val
-        _LOG.debug(f"{str(self)} set allowance: {val}")
+        self.log.debug(f"{str(self)} set allowance: {val}")
 
     @property
     def latency(self):
@@ -310,7 +293,7 @@ class Control(Signal):
         if not self._max_latency >= val >= 0:
             raise ValueError(f"Outside defined range")
         self._latency = val
-        _LOG.debug(f"{str(self)} set latency: {val}")
+        self.log.debug(f"{str(self)} set latency: {val}")
 
     @property
     def precedence(self):
@@ -319,7 +302,7 @@ class Control(Signal):
     @precedence.setter
     def precedence(self, val: int):
         self._precedence = val
-        _LOG.debug(f"{str(self)} set precedence: {val}")
+        self.log.debug(f"{str(self)} set precedence: {val}")
 
     @property
     def generator(self):
@@ -331,7 +314,7 @@ class Control(Signal):
             raise AttributeError(f"Cannot manipulate non-instantiated Control signal")
         self._generator = val
         self.clear()
-        _LOG.debug(f"{str(self)} set generator: {repr(val)}")
+        self.log.debug(f"{str(self)} set generator: {repr(val)}")
 
     def next(self) -> bool:
         try:

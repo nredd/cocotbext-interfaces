@@ -15,11 +15,10 @@ import cocotbext.interfaces as ci
 import cocotbext.interfaces.avalon.streaming as cias
 
 
-_LOG = ci.sim_log(__name__)
-
-class AvalonSTTB(object):
+class AvalonSTTB(ci.Pretty):
     """Testbench for avalon basic stream"""
     def __init__(self, dut):
+        super().__init__()
         self.dut = dut
         self.clkedge = ct.RisingEdge(dut.clk)
 
@@ -32,7 +31,7 @@ class AvalonSTTB(object):
 
         self.backpressure = cd.BitDriver(self.dut.aso_ready, self.dut.clk)
 
-        _LOG.info(f"New testbench: {self} ")
+        self.log.info(f"New testbench: {self} ")
 
     @c.coroutine
     async def initialise(self):
@@ -44,12 +43,12 @@ class AvalonSTTB(object):
         await ct.ClockCycles(self.dut.clk, 10)
         self.dut.reset <= 0
         await ct.ClockCycles(self.dut.clk, 10)
-        _LOG.info(f"Initialized")
+        self.log.info(f"Initialized")
 
 
     @c.coroutine
     async def send_data(self, data):
-        _LOG.info(f"Sending data: {data}")
+        self.log.info(f"Sending data: {data}")
         self.expected_output.append(data)
         await self.st_source.send(data)
 #        await ct.ClockCycles(self.dut.clk, 2 * len(data['data']))

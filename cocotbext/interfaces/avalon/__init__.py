@@ -6,8 +6,6 @@ import cocotb as c
 import cocotbext.interfaces as ci
 from cocotb.triggers import ReadOnly, RisingEdge
 
-_LOG = ci.sim_log(__name__)
-
 class SynchronousEdges(enum.Enum):
     NONE = enum.auto()
     DEASSERT = enum.auto()

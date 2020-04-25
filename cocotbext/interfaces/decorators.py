@@ -1,30 +1,51 @@
+from typing import Optional, Union
+
 import cocotb as c
+import cocotb.triggers as ct
+import pprint as p
+from typing import Optional, Union
 import cocotbext.interfaces as ci
 
-_LOG = ci.sim_log(__name__)
-
-class reaction(object):
+class reaction(ci.Pretty):
     """
     Decorator for specifying methods (bound to instances which inherit `BaseModel`)
     as behavioral reactions.
     """
 
-    def __init__(self, cname: str, val: bool, force: bool = False):
-        self.cname = cname
-        self.val = val
-        self.force = force
+    def __init__(self, cname: str, val: bool,
+                 force: bool = False,
+                 smode: ct.Trigger = ct.ReadOnly):
+
+        super().__init__()
+        self._cname = cname
+        self._val = val
+        self._force = force
+        self._smode = smode
+
+    @property
+    def cname(self) -> str: return self._cname
+
+    @property
+    def val(self) -> bool: return self._val
+
+    @property
+    def force(self) -> bool: return self._force
+
+    @property
+    def smode(self) -> ct.Trigger: return self._smode
 
     def __call__(self, f):
         f.reaction = True
         f.cname = self.cname
         f.val = self.val
         f.force = self.force
-        _LOG.info(f"{repr(self)} detected: {repr(f)}")
-        return c.coroutine(f)
+        f.smode = self.smode
+        self.log.info(f"{repr(self)} detected: {repr(f)}")
+        return f
 
-    def __repr__(self):
-        return f"<{self.__class__.__name__}(cname={self.cname},val={self.val},force={self.force})>"
 
+
+# TODO: (redd@) Redo this
 class filter(object):
     """
     Decorator used for specifying methods (bound to instances which inherit `BaseInterface`)

@@ -5,17 +5,7 @@ from typing import Set, Optional
 import cocotb as c
 import cocotbext.interfaces as ci
 
-_LOG = ci.sim_log(__name__)
-
-class BaseInterface(object, metaclass=abc.ABCMeta):
-
-    def __str__(self):
-        return f"<{self.family}-{self.__class__.__name__}>"
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}(entity={str(self.entity)},bus_name={self.bus_name}," \
-               f"family={self.family},signals={repr(self.signals)},floor={str(self.floor)}," \
-               f"ceiling={str(self.ceiling)},filters={repr(self.filters)})>"
+class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
 
     def __contains__(self, item):
         """Used for membership testing of `Signal` items."""
@@ -47,12 +37,14 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                  log_level: Optional[int] = None) -> None:
         """Should be extended by child class."""
 
+        ci.Pretty.__init__(self) # Logging
+
         self._entity = entity
         self._family = family.capitalize() if family else None
         self._bus_name = bus_name
 
         if log_level is not None:
-            _LOG.setLevel(log_level)
+            self.log.setLevel(log_level)
 
         self._filters = set()
         self._specify(
@@ -61,7 +53,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
             bus_separator=bus_separator
         )
 
-        _LOG.info(f"New {repr(self)}")
+        self.log.info(f"New {repr(self)}")
 
     @property
     def entity(self) -> c.handle.SimHandleBase: return self._entity
@@ -139,7 +131,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                 if s.required:
                     raise ci.InterfaceProtocolError(f"{str(self)} missing required signal: {str(s)}")
 
-                _LOG.info(f"{str(self)} ignoring optional: {str(s)}")
+                self.log.info(f"{str(self)} ignoring optional: {str(s)}")
             elif not s.instantiated:
                 s.handle = getattr(self.entity, alias(s))
 
@@ -148,7 +140,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                         s.filter = f
 
             self._signals.add(s)
-            _LOG.debug(f"{str(self)} applied: {str(spec)}")
+            self.log.debug(f"{str(self)} applied: {str(spec)}")
 
 
     def _txn(self, primary: Optional[bool] = None) -> Set[str]:
@@ -172,4 +164,4 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         if val in self.filters:
             warnings.warn(f"Duplicate filter received; overwriting {repr(val)}")
         self._filters.add(val)
-        _LOG.info(f"{str(self)} applied: {repr(val)}")
+        self.log.info(f"{str(self)} applied: {repr(val)}")

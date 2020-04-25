@@ -5,13 +5,11 @@ import math
 import warnings
 from typing import List, Optional, Set, Callable
 
-from cocotb.triggers import NextTimeStep
+import cocotb.triggers as ct
 
 import cocotbext.interfaces as ci
 import cocotbext.interfaces.avalon as cia
 from cocotb.binary import BinaryValue
-
-_LOG = ci.sim_log(__name__)
 
 class StreamingInterface(cia.BaseSynchronousInterface):
 
@@ -250,7 +248,7 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
     def itf(self) -> StreamingInterface: return self._itf
 
     @ci.decorators.reaction('reset', True)
-    async def reset(self):
+    def reset(self):
         self.in_pkt = False if self.itf.packets else None
 
 
@@ -262,15 +260,15 @@ class PassiveSinkModel(BaseStreamingModel):
         self.prev_channel = None
 
     @ci.decorators.reaction('reset', True)
-    async def reset(self):
-        _LOG.debug(f"{str(self)} in reset")
+    def reset(self):
+        self.log.debug(f"{str(self)} in reset")
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
     @ci.decorators.reaction('valid', True, force=True)
-    async def valid_cycle(self) -> None:
+    def valid_cycle(self) -> None:
 
-        _LOG.debug(f"{str(self)} in valid_cycle")
+        self.log.debug(f"{str(self)} in valid_cycle")
         channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
         data = self.itf['data'].capture() if self.itf['data'].instantiated else None
         empty = self.itf['empty'].capture() if self.itf['empty'].instantiated else None
@@ -339,9 +337,9 @@ class SourceModel(BaseStreamingModel):
 
     # TODO: (redd@) Rewrite w filters
 
-    @ci.decorators.reaction('valid', False)
-    async def assert_valid(self) -> None:
-        _LOG.debug(f"{str(self)} in assert_valid cycle")
+    @ci.decorators.reaction('valid', False, smode=ct.NextTimeStep)
+    def assert_valid(self) -> None:
+        self.log.debug(f"{str(self)} in assert_valid cycle")
 
         # Unforced reaction, so must manually assert valid if not generated
         if not self.itf['valid'].generated:
@@ -349,9 +347,9 @@ class SourceModel(BaseStreamingModel):
         if self.in_pkt is not None and max(len(b) for b in self.buff.values()) > 0:
             self.itf['startofpacket'].drive(True)
 
-    @ci.decorators.reaction('valid', True, force=True)
-    async def valid_cycle(self) -> None:
-        _LOG.debug(f"{str(self)} in valid cycle")
+    @ci.decorators.reaction('valid', True, force=True, smode=ct.NextTimeStep)
+    def valid_cycle(self) -> None:
+        self.log.debug(f"{str(self)} in valid cycle")
 
         channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None
         data = self.buff['data'].pop() if self.itf['data'].instantiated else None

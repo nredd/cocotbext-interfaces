@@ -198,34 +198,25 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
                 """
 
                 # Positive, negative constraints for base, delayed substates respectively
-                pcon = lambda : sample() == val if flow else is_fix
-                ncon = lambda : sample() != val if flow else is_flow
+                pcon = lambda : sample() == val
+                ncon = lambda : sample() != val
 
                 # Include reaction if defined
                 match = next(
                     (r for r in self.reactions if r.cname == ctrl.name and r.val == val), None
                 )
                 react = ([] if react is None else react) + ([] if match is None else [match])
+                cond = cond + [pcon] if cond else [pcon]
 
                 n = node(
                     name=str(val).upper(),
+                    tags=['flow' if flow else 'fix'],
                     conditions=cond,
                     influences=infl,
-                    reactions=react,
-                    initial='BASE',
-                    children=[
-                        node(tags=['flow' if flow else 'fix'],
-                             influences=infl,
-                             reactions=react,
-                             conditions=cond + [pcon] if cond else [pcon])
-                    ],
-                    transitions=[
-                        {'trigger': 'advance', 'source': 'BASE', 'dest': None,
-                         'conditions': cond + [pcon] if cond else [pcon],
-                         }
-                    ]
+                    reactions=react
                 )
 
+                # TODO: (redd@) Fix: initial + transitioning logic when entering latency
                 if delayed:
                     subname = 'ALLOWANCE' if flow else 'LATENCY'
                     hook = f"{ctrl.name}_{subname.lower()}_count"

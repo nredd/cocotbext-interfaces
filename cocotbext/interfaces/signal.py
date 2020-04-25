@@ -224,6 +224,7 @@ class Control(Signal):
 
     # TODO: (redd@) possible to hook into GPI value-caches, remove _cache?
     # TODO: (redd@) How to define flow_vals, fix_vals for variable width+type control signals?
+    # TODO: (redd@) More validation for logical vals
     # TODO: (redd@) How to support parallel (vs sibling) control signals?
     def __init__(
             self, *args,

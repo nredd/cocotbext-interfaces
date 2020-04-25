@@ -50,10 +50,10 @@ class Pretty(object, metaclass=abc.ABCMeta):
 
     @property
     def log(self) -> logging.getLoggerClass(): return self._log
-
+        
     @abc.abstractmethod
     def __init__(self,
-                 level=logging.INFO,
+                 level=logging.DEBUG,
                  shlevel=None,
                  fhlevel=None):
         self._log = sim_log(

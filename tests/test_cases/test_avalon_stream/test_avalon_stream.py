@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python
 """Test to demonstrate functionality of the avalon basic streaming interface"""
 
 import random
@@ -33,7 +33,6 @@ class AvalonSTTB(ci.Pretty):
 
         self.log.info(f"New testbench: {self} ")
 
-    @c.coroutine
     async def initialise(self):
         self.dut.aso_ready <= 1
         self.dut.asi_valid <= 0
@@ -46,7 +45,6 @@ class AvalonSTTB(ci.Pretty):
         self.log.info(f"Initialized")
 
 
-    @c.coroutine
     async def send_data(self, data):
         self.log.info(f"Sending data: {data}")
         self.expected_output.append(data)

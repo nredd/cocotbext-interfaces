@@ -30,14 +30,75 @@ class Signal(ci.Pretty):
     _allowed = Union[bool, int, BinaryValue]
 
 
+
+    # Read-only
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def instantiated(self):
+        return self.handle is not None
+
+    @property
+    def logic_active_high(self):
+        return self._logic_active_high
+
+    @property
+    def required(self):
+        return self._required
+
+    @property
+    def widths(self):
+        return self._widths
+
+    @property
+    def direction(self):
+        return self._direction
+
+    @property
+    def meta(self):
+        return self._meta
+
+    @property
+    def logical_type(self):
+        return self._logical_type
+
+    # Read-Write
+    @property
+    def handle(self):
+        return self._handle
+
+    @handle.setter
+    def handle(self, val: c.handle.SimHandleBase):
+        if not len(val) in self.widths:
+            raise ci.InterfacePropertyError(
+                f"Invalid width ({len(val)}) for {str(val)}"
+            )
+
+        self._handle = val
+
+        self.log.debug(f"{self} set handle: {repr(val)}")
+
+    @property
+    def filter(self):
+        return self._filter
+
+    @filter.setter
+    def filter(self, val: Callable):
+        # TODO: (redd@) Validation
+        self._filter = val
+        self.log.debug(f"{self} set filter: {repr(val)}")
+
+
     def capture(self) -> _allowed:
 
         if not self.instantiated:
-            raise AttributeError(f"Signal ({str(self)}) not instantiated")
+            raise AttributeError(f"Signal ({self}) not instantiated")
 
         val = self.handle.value
         if not val.is_resolvable:
-            raise ci.InterfaceProtocolError(f"Signal ({str(self)}) is unresolvable")
+            raise ci.InterfaceProtocolError(f"Signal ({self}) is unresolvable")
 
         if not self.logic_active_high:
             val.assign(~val.integer & len(self.handle))
@@ -50,16 +111,16 @@ class Signal(ci.Pretty):
         elif self.logical_type == bool:
             val = bool(val.integer)
 
-        self.log.debug(f"{str(self)} captured sample: {repr(val)}")
+        self.log.debug(f"{self} captured sample: {repr(val)}")
         return val
 
     def drive(self, val: _allowed) -> None:
         if not self.instantiated:
-            raise AttributeError(f"Signal ({str(self)}) not instantiated")
+            raise AttributeError(f"Signal ({self}) not instantiated")
 
         if not isinstance(val, self.logical_type):
             raise TypeError(
-                f"Signal ({str(self)}) has logical "
+                f"Signal ({self}) has logical "
                 f"type {self.logical_type} but was provided {type(val)}"
             )
 
@@ -74,7 +135,7 @@ class Signal(ci.Pretty):
 
         val = val if self.logical_type != bool else int(val)
         self.handle <= val
-        self.log.debug(f"{str(self)} driven to: {repr(val)}")
+        self.log.debug(f"{self} driven to: {repr(val)}")
 
     def __init__(self,
                  name: str, *args,
@@ -118,67 +179,8 @@ class Signal(ci.Pretty):
         self._handle = None
         self._filter = None
 
-        self.log.debug(f"New {repr(self)}")
+        self.log.debug(f"New {self}")
 
-
-    # Read-only
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def instantiated(self):
-        return self.handle is not None
-
-    @property
-    def logic_active_high(self):
-        return self._logic_active_high
-
-    @property
-    def required(self):
-        return self._required
-
-    @property
-    def widths(self):
-        return self._widths
-
-    @property
-    def direction(self):
-        return self._direction
-
-    @property
-    def meta(self):
-        return self._meta
-
-    @property
-    def logical_type(self):
-        return self._logical_type
-
-    # Read-Write
-    @property
-    def handle(self):
-        return self._handle
-
-    @handle.setter
-    def handle(self, val: c.handle.SimHandleBase):
-        if not len(val) in self.widths:
-                raise ci.InterfacePropertyError(
-                f"Invalid width ({len(val)}) for {str(val)}"
-            )
-
-        self._handle = val
-
-        self.log.debug(f"{str(self)} set handle: {repr(val)}")
-
-    @property
-    def filter(self):
-        return self._filter
-
-    @filter.setter
-    def filter(self, val: Callable):
-        # TODO: (redd@) Validation
-        self._filter = val
-        self.log.debug(f"{str(self)} set filter: {repr(val)}")
 
 
 @functools.total_ordering
@@ -193,18 +195,69 @@ class Control(Signal):
     precedence are denoted *flow* states--otherwise, denoted *fixed*.
     """
 
-    def __eq__(self, other):
-        if not isinstance(other, Control):
-            return NotImplemented
-        return self.precedence == other.precedence
+    # Read-only
+    @property
+    def flow_vals(self):
+        return self._flow_vals
 
-    def __hash__(self):
-        return self.precedence
+    @property
+    def fix_vals(self):
+        return self._fix_vals
 
-    def __lt__(self, other):
-        if not isinstance(other, Control):
-            return NotImplemented
-        return self.precedence < other.precedence
+    @property
+    def generated(self) -> bool:
+        return self.generator is not None
+
+    # Read-write
+    @property
+    def allowance(self):
+        return self._allowance
+
+    @allowance.setter
+    def allowance(self, val: int):
+        if not self._max_allowance >= val >= 0:
+            raise ValueError(f"Outside defined range")
+        self._allowance = val
+        self.log.debug(f"{self} set allowance: {val}")
+
+    @property
+    def latency(self):
+        return self._latency
+
+    @latency.setter
+    def latency(self, val: int):
+        if not self._max_latency >= val >= 0:
+            raise ValueError(f"Outside defined range")
+        self._latency = val
+        self.log.debug(f"{self} set latency: {val}")
+
+    @property
+    def precedence(self):
+        return self._precedence
+
+    @precedence.setter
+    def precedence(self, val: int):
+        self._precedence = val
+        self.log.debug(f"{self} set precedence: {val}")
+
+    @property
+    def generator(self):
+        return self._generator
+
+    @generator.setter
+    def generator(self, val: Iterator[bool]):
+        if not self.instantiated:
+            raise AttributeError(f"Cannot manipulate non-instantiated Control signal")
+        self._generator = val
+        self.clear()
+        self.log.debug(f"{self} set generator: {repr(val)}")
+
+
+    def next(self) -> bool:
+        try:
+            return bool(next(self.generator))
+        except Exception as e:
+            raise e  # TODO: (redd@) Do this better
 
     def capture(self) -> bool:
         if not self.generated:
@@ -221,6 +274,21 @@ class Control(Signal):
     def clear(self) -> None:
         # TODO: (redd@) Raise error for non-generated Controls?
         self._cache = None
+
+
+    def __eq__(self, other):
+        if not isinstance(other, Control):
+            return NotImplemented
+        return self.precedence == other.precedence
+
+    def __hash__(self):
+        return self.precedence
+
+    def __lt__(self, other):
+        if not isinstance(other, Control):
+            return NotImplemented
+        return self.precedence < other.precedence
+
 
     # TODO: (redd@) possible to hook into GPI value-caches, remove _cache?
     # TODO: (redd@) How to define flow_vals, fix_vals for variable width+type control signals?
@@ -256,70 +324,22 @@ class Control(Signal):
 
         if any(w > 1 for w in self.widths) or self.logical_type != bool:
             raise NotImplementedError(
-                f"Control signals ({str(self)}) with more than "
+                f"Control signals ({self}) with more than "
                 f"two (logical) values are not yet supported"
             )
 
-    # Read-only
-    @property
-    def flow_vals(self):
-        return self._flow_vals
 
-    @property
-    def fix_vals(self):
-        return self._fix_vals
 
-    @property
-    def generated(self) -> bool:
-        return self.generator is not None
 
-    # Read-write
-    @property
-    def allowance(self):
-        return self._allowance
 
-    @allowance.setter
-    def allowance(self, val: int):
-        if not self._max_allowance >= val >= 0:
-            raise ValueError(f"Outside defined range")
-        self._allowance = val
-        self.log.debug(f"{str(self)} set allowance: {val}")
 
-    @property
-    def latency(self):
-        return self._latency
 
-    @latency.setter
-    def latency(self, val: int):
-        if not self._max_latency >= val >= 0:
-            raise ValueError(f"Outside defined range")
-        self._latency = val
-        self.log.debug(f"{str(self)} set latency: {val}")
 
-    @property
-    def precedence(self):
-        return self._precedence
 
-    @precedence.setter
-    def precedence(self, val: int):
-        self._precedence = val
-        self.log.debug(f"{str(self)} set precedence: {val}")
 
-    @property
-    def generator(self):
-        return self._generator
 
-    @generator.setter
-    def generator(self, val: Iterator[bool]):
-        if not self.instantiated:
-            raise AttributeError(f"Cannot manipulate non-instantiated Control signal")
-        self._generator = val
-        self.clear()
-        self.log.debug(f"{str(self)} set generator: {repr(val)}")
 
-    def next(self) -> bool:
-        try:
-            return bool(next(self.generator))
-        except Exception as e:
-            raise e  # TODO: (redd@) Do this better
+
+
+
 

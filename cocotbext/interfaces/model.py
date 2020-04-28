@@ -26,6 +26,15 @@ class Behavioral(ten.State):
         used to determine which `Control`s must be re-sampled after completing a cycle.
     """
 
+
+    @property
+    def conditions(self) -> List: return self._conditions
+    @property
+    def reactions(self) -> List: return self._reactions
+    @property
+    def influences(self) -> List: return self._influences
+
+
     def __init__(self, *args, **kwargs):
         """
         Args:
@@ -41,13 +50,6 @@ class Behavioral(ten.State):
         super().__init__(*args, **kwargs)
         self.initialized = True
 
-    @property
-    def conditions(self) -> List: return self._conditions
-    @property
-    def reactions(self) -> List: return self._reactions
-    @property
-    def influences(self) -> List: return self._influences
-
     # TODO: (redd@) Anything fun to add here?
 
 
@@ -55,39 +57,6 @@ class Behavioral(ten.State):
 class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TODO: (redd@) Get GraphMachine working
     # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
 
-    @abc.abstractmethod
-    def __init__(self, itf: ci.core.BaseInterface, primary: Optional[bool] = None) -> None:
-        """Should be extended by child class."""
-
-        ci.Pretty.__init__(self, shlevel=logging.INFO) # Logging
-
-        t.core._LOGGER = self.log
-        ten._LOGGER = self.log
-        tes._LOGGER = self.log
-
-        self._itf = itf
-
-        self.busy = False
-        self.busy_event = Event(f"{self.__class__.__name__}_busy")
-
-        self._primary = primary
-        self._buff = {k: collections.deque() for k in self.itf._txn(primary=self.primary)}
-        self._reactions = set(
-            d[1].__func__ for d in inspect.getmembers(self, predicate=inspect.ismethod)
-            if getattr(d[1].__func__, 'reaction', False)
-        )
-        self._elaborated = self._elaborate()
-        # TODO: (redd@) Get send_event working
-        super().__init__(
-            states=self._elaborated,
-            initial='TOP',
-            queued=True,
-        #    send_event=True,
-        )
-
-        # TODO: (redd@) make this prettier; default file location?
-        # self.get_graph().draw('my_state_diagram.png', prog='dot')
-        self.log.debug(f"New {repr(self)}")
 
     @property
     def itf(self) -> ci.core.BaseInterface:
@@ -96,6 +65,37 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
     @property
     def reactions(self) -> Set[Callable]:
         return self._reactions
+
+
+
+
+    @property
+    def primary(self) -> Optional[bool]:
+        return self._primary
+
+    @primary.setter
+    def primary(self, val: Optional[bool]) -> None:
+        self._primary = val
+
+    @property
+    def busy(self) -> bool:
+        """
+        Returns True if model is currently processing contents of `self.buff`, False if
+        model is finished, and, None if model is idle.
+        """
+        return self._busy
+
+    @busy.setter
+    def busy(self, val: bool) -> None:
+        self._busy = val
+
+    @property
+    def buff(self) -> Dict[str, Deque]:
+        return self._buff
+
+    @property
+    def nchunks(self) -> int: return max(len(d) for d in self.buff.values()) if self.buff else 0
+
 
     # TODO: (redd@) cache this after init
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
@@ -255,7 +255,7 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
                 """
 
                 c = [value(fv, cond=cond, delayed=delayed,
-                    infl=infl, react=react) for fv in vals] + [node(name='INIT')]
+                           infl=infl, react=react) for fv in vals] + [node(name='INIT')]
                 t = [{'trigger': 'advance',
                       'source': ['INIT'] + [str(src).upper() for src in vals if src != fv],
                       'dest': str(fv).upper(),
@@ -338,7 +338,7 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
             # Control-nest's influences are all other instantiated Controls along/above its precedence level
             cond = {}
             for c in controls:
-                self.log.debug(f"{str(self)} preprocessing: {str(c)}")
+                self.log.debug(f"{self} preprocessing: {str(c)}")
                 match = next((r for r in self.reactions if r.cname == c.name and r.force), None)
                 if c.instantiated:
                     cond[c.name] = {
@@ -347,7 +347,7 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
                         'flow': lambda: c.capture() in c.flow_vals
                     }
                 elif match is not None: # Forced reactions create 'virtual' precedence levels
-                    self.log.debug(f"{str(self)} inserting forced reaction: {str(match)}")
+                    self.log.debug(f"{self} inserting forced reaction: {str(match)}")
                     for f in flatten(get_flowers(bh)):
                         f['tags'].remove('flow')
                         f['initial'] = c.name.upper()
@@ -365,7 +365,7 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
 
             if cond: # Elaborate behavior of instantiated Controls, if any
                 for f in flatten(get_flowers(bh)):
-                    self.log.debug(f"{str(self)} adding to flower ({f})")
+                    self.log.debug(f"{self} adding to flower ({f})")
                     f['tags'].remove('flow')
                     f['transitions'] = []
 
@@ -418,44 +418,16 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
             ]
         )
 
-
-    @property
-    def primary(self) -> Optional[bool]:
-        return self._primary
-
-    @primary.setter
-    def primary(self, val: Optional[bool]) -> None:
-        self._primary = val
-
-    @property
-    def busy(self) -> bool:
-        """
-        Returns True if model is currently processing contents of `self.buff`, False if
-        model is finished, and, None if model is idle.
-        """
-        return self._busy
-
-    @busy.setter
-    def busy(self, val: bool) -> None:
-        self._busy = val
-
-    @property
-    def buff(self) -> Dict[str, Deque]:
-        return self._buff
-
-    @property
-    def nchunks(self) -> int: return max(len(d) for d in self.buff.values()) if self.buff else 0
-
     def _flush(self) -> Dict[str, List]:
         out = {k: list(v) for k,v in self.buff.items()}
         [d.clear() for d in self.buff.values()]
-        self.log.debug(f"{str(self)} buffer flushed: {out}")
+        self.log.debug(f"{self} buffer flushed: {out}")
         return out
 
     def _load(self, txn: Dict[str, Iterable]) -> None:
         for k, v in txn.items():
             self.buff[k].extendleft(v)
-        self.log.debug(f"{str(self)} loaded buffer ({txn})")
+        self.log.debug(f"{self} loaded buffer ({txn})")
 
 
     @c.coroutine
@@ -475,7 +447,7 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
 
         if set(txn.keys()) != self.itf._txn(primary=self.primary):
             raise ValueError(
-                f"{str(self)} expects input format: {str(self.itf._txn(primary=self.primary))}"
+                f"{self} expects input format: {str(self.itf._txn(primary=self.primary))}"
             )
 
         await self.acquire()
@@ -484,11 +456,10 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
         while self.busy:
             await trig
             await self._event_loop()
-            self.log.debug(f"{str(self)} in state {self.state}")
 
         self._flush() # Make sure buffer is empty
 
-        self.log.info(f"{str(self)} completed input")
+        self.log.info(f"{self} completed input")
 
     @c.coroutine
     async def output(self, trig: Awaitable) -> Dict:
@@ -502,10 +473,9 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
         while self.busy:
             await trig
             await self._event_loop()
-            self.log.debug(f"{str(self)} in state {self.state}")
 
         txn = self._flush()
-        self.log.info(f"{str(self)} completed output")
+        self.log.info(f"{self} completed output")
         return txn
 
     @c.coroutine
@@ -515,14 +485,14 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
         """
         # TODO: (redd@) clean
         # TODO: (redd@) Could use cocotb Events to standardize waiting; don't block until a reaction is available?
-        self.log.debug(f"{str(self)} looping...")
+        self.log.debug(f"{self} looping...")
 
         await ReadOnly() # Need all signals stabilized while model transitions
         self.trigger('advance')
 
         # TODO: (redd@) Reimplement to consider source (shouldn't error out in beginning of sim w/ lots of undefined signals)
         if self.state == 'TOP_NULL':
-           raise ci.InterfaceProtocolError(f"Control context invariant was violated")
+            raise ci.InterfaceProtocolError(f"Control context invariant was violated")
 
         # Delete cached values of influences, execute reactions TODO (redd@): revisit
         # for c in self.get_state(self.state).influences:
@@ -530,8 +500,44 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
 
         for fn in self.get_state(self.state).reactions:
             if fn.smode != ReadOnly:
+                await NextTimeStep()
                 await fn.smode()
 
             fn(self) # TODO: (redd@) fix method binding
 
-        self.log.debug(f"{str(self)} looped!")
+        self.log.debug(f"{self} looped!")
+
+
+    @abc.abstractmethod
+    def __init__(self, itf: ci.core.BaseInterface, primary: Optional[bool] = None) -> None:
+        """Should be extended by child class."""
+
+        ci.Pretty.__init__(self) # Logging
+
+        t.core._LOGGER = self.log
+        ten._LOGGER = self.log
+        tes._LOGGER = self.log
+
+        self._itf = itf
+
+        self.busy = False
+        self.busy_event = Event(f"{self.__class__.__name__}_busy")
+
+        self._primary = primary
+        self._buff = {k: collections.deque() for k in self.itf._txn(primary=self.primary)}
+        self._reactions = set(
+            d[1].__func__ for d in inspect.getmembers(self, predicate=inspect.ismethod)
+            if getattr(d[1].__func__, 'reaction', False)
+        )
+        self._elaborated = self._elaborate()
+        # TODO: (redd@) Get send_event working
+        super().__init__(
+            states=self._elaborated,
+            initial='TOP',
+            queued=True,
+        #    send_event=True,
+        )
+
+        # TODO: (redd@) make this prettier; default file location?
+        # self.get_graph().draw('my_state_diagram.png', prog='dot')
+        self.log.debug(f"New {self}")

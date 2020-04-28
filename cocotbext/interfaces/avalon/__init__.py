@@ -17,6 +17,13 @@ class Clock(ci.core.BaseInterface):
     Represents an Avalon Clock interface.
     """
 
+
+    @property
+    def rate(self) -> Optional[int]: return self._rate
+
+    @property
+    def rate_known(self) -> bool: return self._rate is not None
+
     @classmethod
     def specification(cls) -> Set[ci.signal.Signal]:
         return {
@@ -29,23 +36,25 @@ class Clock(ci.core.BaseInterface):
         # TODO: (redd@) is associatedDirectClock needed? could be used to specify _clock domains
         if rate is not None and not 2 ** 32 - 1 >= rate >= 0:
             raise ci.InterfacePropertyError(
-                f"{str(self)} spec. defines clockRate as 0-4294967295, was provided {rate}"
+                f"{self} spec. defines clockRate as 0-4294967295, was provided {rate}"
             )
 
         self._rate = rate
         super().__init__(*args, **kwargs)
-
-    @property
-    def rate(self) -> Optional[int]: return self._rate
-
-    @property
-    def rate_known(self) -> bool: return self._rate is not None
 
 
 class Reset(ci.core.BaseInterface):
     """
     Represents an Avalon Reset interface.
     """
+
+
+    @property
+    def clock(self) -> Optional[Clock]: return self._clock
+
+    @property
+    def edges(self) -> SynchronousEdges: return self._edges
+
 
     @classmethod
     def specification(cls) -> Set[ci.signal.Signal]:
@@ -65,18 +74,19 @@ class Reset(ci.core.BaseInterface):
 
         super().__init__(*args, **kwargs)
 
-    @property
-    def clock(self) -> Optional[Clock]: return self._clock
-
-    @property
-    def edges(self) -> SynchronousEdges: return self._edges
-
 
 class BaseSynchronousInterface(ci.core.BaseInterface, metaclass=abc.ABCMeta):
     """
     Represents a synchronous Avalon interface, which are defined to have associated
     Avalon Clock, Reset interfaces.
     """
+
+    # TODO: (redd@) Rename? is ambig
+    @property
+    def clock(self) -> c.handle.SimHandleBase: return self._clock['clk'].handle
+    @property
+    def reset(self) -> c.handle.SimHandleBase: return self._reset['reset'].handle
+
 
     @abc.abstractmethod
     def __init__(self, entity, *args, **kwargs) -> None:
@@ -87,12 +97,6 @@ class BaseSynchronousInterface(ci.core.BaseInterface, metaclass=abc.ABCMeta):
         self._reset = Reset(entity, clock=self._clock, family='avalon')
         self._specify(self._reset.signals, precedes=True)
 
-    # TODO: (redd@) Rename? is ambig
-    @property
-    def clock(self) -> c.handle.SimHandleBase: return self._clock['clk'].handle
-    @property
-    def reset(self) -> c.handle.SimHandleBase: return self._reset['reset'].handle
-
 
 class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
     """
@@ -100,11 +104,6 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
     Avalon Clock, Reset interfaces.
     """
 
-    @abc.abstractmethod
-    def __init__(self, itf: BaseSynchronousInterface, *args, **kwargs) -> None:
-        self.re = RisingEdge(itf.clock)
-        self.ro = ReadOnly()
-        super().__init__(itf, *args, **kwargs)
 
     # TODO: (redd@) Add 'initialize', abstract coroutine to set signals to default
     # TODO: (redd@) Add reset coroutine
@@ -112,7 +111,6 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
     def itf(self) -> BaseSynchronousInterface:
         return self._itf
 
-    @c.coroutine
     async def tx(self, txn: Dict, sync: bool = True) -> None:
         """
         Blocking call to transmit a logical input as physical stimulus, driving
@@ -123,7 +121,6 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
 
         await self.input(txn, self.re)
 
-    @c.coroutine
     async def rx(self) -> Dict:
         """
         Blocking call to sample/receive physical stimulus on pins of the interface and return the
@@ -131,3 +128,9 @@ class BaseSynchronousModel(ci.model.BaseModel, metaclass=abc.ABCMeta):
         """
 
         return await self.output(self.re)
+
+    @abc.abstractmethod
+    def __init__(self, itf: BaseSynchronousInterface, *args, **kwargs) -> None:
+        self.re = RisingEdge(itf.clock)
+        self.ro = ReadOnly()
+        super().__init__(itf, *args, **kwargs)

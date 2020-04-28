@@ -12,15 +12,6 @@ class reaction(ci.Pretty):
     as behavioral reactions.
     """
 
-    def __init__(self, cname: str, val: bool,
-                 force: bool = False,
-                 smode: ct.Trigger = ct.ReadOnly):
-
-        super().__init__()
-        self._cname = cname
-        self._val = val
-        self._force = force
-        self._smode = smode
 
     @property
     def cname(self) -> str: return self._cname
@@ -34,13 +25,23 @@ class reaction(ci.Pretty):
     @property
     def smode(self) -> ct.Trigger: return self._smode
 
+    def __init__(self, cname: str, val: bool,
+                 force: bool = False,
+                 smode: ct.Trigger = ct.ReadOnly):
+
+        super().__init__()
+        self._cname = cname
+        self._val = val
+        self._force = force
+        self._smode = smode
+
     def __call__(self, f):
         f.reaction = True
         f.cname = self.cname
         f.val = self.val
         f.force = self.force
         f.smode = self.smode
-        self.log.info(f"{repr(self)} detected: {repr(f)}")
+        self.log.info(f"{self} detected: {repr(f)}")
         return f
 
 
@@ -58,7 +59,7 @@ class filter(object):
     def __call__(self, f):
         f.filter = True
         f.cname = self.cname
-        _LOG.info(f"{repr(self)} detected: {repr(f)}")
+        _LOG.info(f"{self} detected: {repr(f)}")
         return f
 
     # TODO: (redd@) Deprecate this

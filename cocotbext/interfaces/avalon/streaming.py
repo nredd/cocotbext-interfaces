@@ -13,6 +13,44 @@ from cocotb.binary import BinaryValue
 
 class StreamingInterface(cia.BaseSynchronousInterface):
 
+
+    @property
+    def packets(self) -> bool:
+        return self._packets
+
+    @property
+    def data_bits_per_symbol(self) -> Optional[int]:
+        return self._data_bits_per_symbol
+
+    @property
+    def empty_within_packet(self) -> Optional[bool]:
+        return self._empty_within_packet
+
+    @property
+    def error_descriptor(self) -> Optional[List[str]]:
+        return self._error_descriptor
+
+    @property
+    def first_symbol_in_higher_order_bits(self) -> Optional[bool]:
+        return self._first_symbol_in_higher_order_bits
+
+    @property
+    def max_channel(self) -> Optional[int]:
+        return self._max_channel
+
+    @property
+    def ready_allowance(self) -> Optional[int]:
+        return self._ready_allowance
+
+    @property
+    def ready_latency(self) -> Optional[int]:
+        return self._ready_latency
+
+    @property
+    def in_packet_timeout(self) -> Optional[int]:
+        return self._in_packet_timeout
+
+
     @classmethod
     def specification(cls) -> Set[ci.signal.Signal]:
         return {
@@ -29,6 +67,23 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             ci.signal.Control('ready', direction=ci.signal.Direction.TO_PRIMARY, max_allowance=8, max_latency=8),
             ci.signal.Control('valid', precedence=1),
         }
+
+    def get_descriptors(self, mask: int) -> Optional[List[str]]:
+        """Return list of descriptors specified by error mask, if defined."""
+        if self.error_descriptor:
+            ed = self.error_descriptor
+            return [ed[i] for i in range(len(ed)) if mask & 2 ** i]
+        return None
+
+    def mask_data(self, data: BinaryValue, empty: int) -> BinaryValue:
+        """Returns data signal masked according to empty signal. """
+        be = self.first_symbol_in_higher_order_bits
+        vec = BinaryValue(bigEndian=be)
+        val = data.value.binstr[:-empty] if be else data.value.binstr[empty:]
+        vec.assign(val)
+        if not vec.is_resolvable:
+            raise ci.InterfaceProtocolError(f"Signal ({str(self['data'])} is unresolvable.")
+        return vec
 
     def __init__(self, *args,
                  data_bits_per_symbol: Optional[int] = None,
@@ -62,7 +117,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             elif not 255 >= max_channel >= 0:
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec defines maxChannel as 0-255. "
-                    f"{str(self)} maxChannel is {max_channel}"
+                    f"{self} maxChannel is {max_channel}"
                 )
             else:
                 self._max_channel = max_channel
@@ -79,7 +134,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             elif not 512 >= data_bits_per_symbol >= 1:
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec defines dataBitsPerSymbol as 1-512. "
-                    f"{str(self)} dataBitsPerSymbol is {data_bits_per_symbol}"
+                    f"{self} dataBitsPerSymbol is {data_bits_per_symbol}"
                 )
             else:
                 self._data_bits_per_symbol = data_bits_per_symbol
@@ -101,7 +156,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec requires that error descriptors "
                     f"be provided as list of strings, one for each error bit. "
-                    f"{str(self)} provided {error_descriptor}"
+                    f"{self} provided {error_descriptor}"
                 )
             else:
                 self._error_descriptor = error_descriptor
@@ -124,7 +179,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             if self.ready_latency > self.ready_allowance:
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec requires readyLatency <= readyAllowance. "
-                    f"{str(self)} readyLatency is {self.ready_latency}, "
+                    f"{self} readyLatency is {self.ready_latency}, "
                     f"readyAllowance is {self.ready_latency}"
                 )
             self['ready'].allowance = self.ready_allowance
@@ -166,7 +221,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
                 if len(self['empty'].handle) != req_size:
                     raise ci.InterfacePropertyError(
                         f"AvalonST spec defines empty width as ceil[log_2(<symbols per cycle>)] "
-                        f"= {req_size}. {str(self)} empty width is {len(self['empty'].handle)}"
+                        f"= {req_size}. {self} empty width is {len(self['empty'].handle)}"
                     )
 
             if empty_within_packet is None:
@@ -181,68 +236,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             self._in_packet_timeout = None
             self._empty_within_packet = None
 
-    def get_descriptors(self, mask: int) -> Optional[List[str]]:
-        """Return list of descriptors specified by error mask, if defined."""
-        if self.error_descriptor:
-            ed = self.error_descriptor
-            return [ed[i] for i in range(len(ed)) if mask & 2 ** i]
-        return None
-
-    def mask_data(self, data: BinaryValue, empty: int) -> BinaryValue:
-        """Returns data signal masked according to empty signal. """
-        be = self.first_symbol_in_higher_order_bits
-        vec = BinaryValue(bigEndian=be)
-        val = data.value.binstr[:-empty] if be else data.value.binstr[empty:]
-        vec.assign(val)
-        if not vec.is_resolvable:
-            raise ci.InterfaceProtocolError(f"Signal ({str(self['data'])} is unresolvable.")
-        return vec
-
-    @property
-    def packets(self) -> bool:
-        return self._packets
-
-    @property
-    def data_bits_per_symbol(self) -> Optional[int]:
-        return self._data_bits_per_symbol
-
-    @property
-    def empty_within_packet(self) -> Optional[bool]:
-        return self._empty_within_packet
-
-    @property
-    def error_descriptor(self) -> Optional[List[str]]:
-        return self._error_descriptor
-
-    @property
-    def first_symbol_in_higher_order_bits(self) -> Optional[bool]:
-        return self._first_symbol_in_higher_order_bits
-
-    @property
-    def max_channel(self) -> Optional[int]:
-        return self._max_channel
-
-    @property
-    def ready_allowance(self) -> Optional[int]:
-        return self._ready_allowance
-
-    @property
-    def ready_latency(self) -> Optional[int]:
-        return self._ready_latency
-
-    @property
-    def in_packet_timeout(self) -> Optional[int]:
-        return self._in_packet_timeout
-
-
 class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
-
-    @abc.abstractmethod
-    def __init__(self, itf: StreamingInterface, *args, **kwargs) -> None:
-
-        # TODO: (redd@) Add in_packet_timeout logic
-        self.in_pkt = False if itf.packets else None
-        super().__init__(itf, *args, **kwargs)
 
     @property
     def itf(self) -> StreamingInterface: return self._itf
@@ -251,24 +245,27 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
     def reset(self):
         self.in_pkt = False if self.itf.packets else None
 
+    @abc.abstractmethod
+    def __init__(self, itf: StreamingInterface, *args, **kwargs) -> None:
+
+        # TODO: (redd@) Add in_packet_timeout logic
+        self.in_pkt = False if itf.packets else None
+        super().__init__(itf, *args, **kwargs)
+
 
 # TODO: (redd@) Add ActiveSinkModel
 class PassiveSinkModel(BaseStreamingModel):
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, primary=False, **kwargs)
-        self.prev_channel = None
-
     @ci.decorators.reaction('reset', True)
     def reset(self):
-        self.log.debug(f"{str(self)} in reset")
+        self.log.debug(f"{self} in reset")
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
     @ci.decorators.reaction('valid', True, force=True)
     def valid_cycle(self) -> None:
 
-        self.log.debug(f"{str(self)} in valid_cycle")
+        self.log.debug(f"{self} in valid_cycle")
         channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
         data = self.itf['data'].capture() if self.itf['data'].instantiated else None
         empty = self.itf['empty'].capture() if self.itf['empty'].instantiated else None
@@ -316,7 +313,11 @@ class PassiveSinkModel(BaseStreamingModel):
             if self.prev_channel is not None:
                 self.buff['channel'].append(self.prev_channel)
 
-            self.busy = False
+            self.release()
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, primary=False, **kwargs)
+        self.prev_channel = None
 
 
 class StreamingMonitor(ci.adapters.BaseMonitor):
@@ -332,14 +333,12 @@ class StreamingMonitor(ci.adapters.BaseMonitor):
 
 class SourceModel(BaseStreamingModel):
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, primary=True, **kwargs)
 
     # TODO: (redd@) Rewrite w filters
 
-    @ci.decorators.reaction('valid', False, smode=ct.NextTimeStep)
+    @ci.decorators.reaction('valid', False, smode=ct.ReadWrite)
     def assert_valid(self) -> None:
-        self.log.debug(f"{str(self)} in assert_valid cycle")
+        self.log.debug(f"{self} in assert_valid cycle")
 
         # Unforced reaction, so must manually assert valid if not generated
         if not self.itf['valid'].generated:
@@ -347,9 +346,9 @@ class SourceModel(BaseStreamingModel):
         if self.in_pkt is not None and max(len(b) for b in self.buff.values()) > 0:
             self.itf['startofpacket'].drive(True)
 
-    @ci.decorators.reaction('valid', True, force=True, smode=ct.NextTimeStep)
+    @ci.decorators.reaction('valid', True, force=True, smode=ct.ReadWrite)
     def valid_cycle(self) -> None:
-        self.log.debug(f"{str(self)} in valid cycle")
+        self.log.debug(f"{self} in valid cycle")
 
         channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None
         data = self.buff['data'].pop() if self.itf['data'].instantiated else None
@@ -376,8 +375,11 @@ class SourceModel(BaseStreamingModel):
         else:
             if self.itf['valid'].instantiated and not self.itf['valid'].generated:
                 self.itf['valid'].drive(False)
-            self.busy = False
+            self.release()
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, primary=True, **kwargs)
+ zz
 class StreamingDriver(ci.adapters.BaseDriver):
 
     def __init__(self, *args, **kwargs) -> None:

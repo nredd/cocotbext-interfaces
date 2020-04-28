@@ -7,54 +7,6 @@ import cocotbext.interfaces as ci
 
 class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
 
-    def __contains__(self, item):
-        """Used for membership testing of `Signal` items."""
-        if hasattr(self, '_signals'):
-            if isinstance(item, ci.signal.Signal):
-                return any([s.name == item.name for s in self.signals])
-            elif isinstance(item, str):
-                return any([s.name == item for s in self.signals])
-
-        return False
-
-    # TODO: (redd@) Rethink how users should index signals
-    def __getitem__(self, key):
-        """Used to look up signals"""
-        return next(x for x in self.signals if x.name == key)
-
-    @classmethod
-    @abc.abstractmethod
-    def specification(cls) -> Set[ci.signal.Signal]:
-        """Returns the s specifications for this interface. Should be extended by child class."""
-        pass
-
-    @abc.abstractmethod
-    def __init__(self,
-                 entity: c.handle.SimHandleBase,
-                 bus_name: Optional[str] = None,
-                 bus_separator: str = "_",
-                 family: Optional[str] = None,
-                 log_level: Optional[int] = None) -> None:
-        """Should be extended by child class."""
-
-        ci.Pretty.__init__(self) # Logging
-
-        self._entity = entity
-        self._family = family.capitalize() if family else None
-        self._bus_name = bus_name
-
-        if log_level is not None:
-            self.log.setLevel(log_level)
-
-        self._filters = set()
-        self._specify(
-            self.specification(),
-            bus_name=bus_name,
-            bus_separator=bus_separator
-        )
-
-        self.log.info(f"New {repr(self)}")
-
     @property
     def entity(self) -> c.handle.SimHandleBase: return self._entity
 
@@ -88,6 +40,17 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
     @property
     def ceiling(self) -> Optional[Set[ci.signal.Control]]:
         return set(c for c in self.controls if c.precedence == self.pmax)
+
+
+    @property
+    def filters(self) -> Set[ci.decorators.filter]:
+        return self._filters
+
+    @classmethod
+    @abc.abstractmethod
+    def specification(cls) -> Set[ci.signal.Signal]:
+        """Returns the s specifications for this interface. Should be extended by child class."""
+        pass
 
     def _specify(self, spec: Set[ci.signal.Signal],
                  precedes: bool = False,
@@ -129,9 +92,9 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
         for s in spec:
             if not hasattr(self.entity, alias(s)):
                 if s.required:
-                    raise ci.InterfaceProtocolError(f"{str(self)} missing required signal: {str(s)}")
+                    raise ci.InterfaceProtocolError(f"{self} missing required signal: {str(s)}")
 
-                self.log.info(f"{str(self)} ignoring optional: {str(s)}")
+                self.log.info(f"{self} ignoring optional: {str(s)}")
             elif not s.instantiated:
                 s.handle = getattr(self.entity, alias(s))
 
@@ -140,8 +103,7 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
                         s.filter = f
 
             self._signals.add(s)
-            self.log.debug(f"{str(self)} applied: {str(spec)}")
-
+            self.log.debug(f"{self} applied: {str(spec)}")
 
     def _txn(self, primary: Optional[bool] = None) -> Set[str]:
         """
@@ -156,12 +118,53 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
         cnd = lambda s: s.instantiated and not s.meta and s.direction == d
         return set(s.name for s in self.signals if cnd(s))
 
-    @property
-    def filters(self) -> Set[ci.decorators.filter]:
-        return self._filters
-
     def _add_filter(self, val: ci.decorators.filter) -> None:
         if val in self.filters:
             warnings.warn(f"Duplicate filter received; overwriting {repr(val)}")
         self._filters.add(val)
-        self.log.info(f"{str(self)} applied: {repr(val)}")
+        self.log.info(f"{self} applied: {repr(val)}")
+
+
+
+    def __contains__(self, item):
+        """Used for membership testing of `Signal` items."""
+        if hasattr(self, '_signals'):
+            if isinstance(item, ci.signal.Signal):
+                return any([s.name == item.name for s in self.signals])
+            elif isinstance(item, str):
+                return any([s.name == item for s in self.signals])
+
+        return False
+
+    # TODO: (redd@) Rethink how users should index signals
+    def __getitem__(self, key):
+        """Used to look up signals"""
+        return next(x for x in self.signals if x.name == key)
+
+
+    @abc.abstractmethod
+    def __init__(self,
+                 entity: c.handle.SimHandleBase,
+                 bus_name: Optional[str] = None,
+                 bus_separator: str = "_",
+                 family: Optional[str] = None,
+                 log_level: Optional[int] = None) -> None:
+        """Should be extended by child class."""
+
+        ci.Pretty.__init__(self) # Logging
+
+        self._entity = entity
+        self._family = family.capitalize() if family else None
+        self._bus_name = bus_name
+
+        if log_level is not None:
+            self.log.setLevel(log_level)
+
+        self._filters = set()
+        self._specify(
+            self.specification(),
+            bus_name=bus_name,
+            bus_separator=bus_separator
+        )
+
+        self.log.info(f"New {self}")

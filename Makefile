@@ -26,9 +26,14 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
+export SHELL := $(CURDIR)/shell
+
+.PHONY: install
+install:
+	pip install -e .
 
 .PHONY: all
-all: test
+all: install test
 
 .PHONY: clean
 clean:
@@ -38,7 +43,7 @@ clean:
 	-@find . -name "*.log" | xargs rm -rf
 	-@find . -name "*.vcd" | xargs rm -rf
 	-@find . -name "*.png" | xargs rm -rf
-	-@find . -name "**tests/**/*build" | xargs rm -rf
+	-@find . -wholename "**tests/**/*build" | xargs rm -rf
 	$(MAKE) -C examples clean
 	$(MAKE) -C tests clean
 
@@ -51,10 +56,10 @@ do_tests::
 # For Jenkins we use the exit code to detect compile errors or catastrophic
 # failures and the XML to track test results
 .PHONY: jenkins
-jenkins: do_tests
+jenkins: install do_tests
 	./bin/combine_results.py --suppress_rc --testsuites_name=cocotb_regression
 
 # By default want the exit code to indicate the test results
 .PHONY: test
-test:
+test: install
 	$(MAKE) do_tests; ret=$$?; ./bin/combine_results.py && exit $$ret

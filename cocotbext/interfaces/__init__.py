@@ -3,19 +3,18 @@ import inspect
 import logging
 
 import pprint
-import cocotb as c
+from cocotb.log import SimLogFormatter, SimColourLogFormatter, SimLog, SimBaseLog, SimTimeContextFilter, want_color_output
 
-# Ad hoc logging TODO: finish
-# root = logging.getLogger()
-# fh = logging.FileHandler(__name__, 'w+')
-# fh.addFilter(c.log.SimTimeContextFilter())
-# fh.setFormatter(c.log.SimColourLogFormatter() if c.log.want_color_output() else c.log.SimLogFormatter())
-
+# Ad hoc logging
+root = logging.getLogger()
+fh = logging.FileHandler(__name__, 'w+')
+fh.addFilter(SimTimeContextFilter())
+fh.setFormatter(SimColourLogFormatter() if want_color_output() else SimLogFormatter())
 
 def log(name, level, id=None):
     """ `cocotb.SimLog` with levels."""
 
-    new = c.log.SimLog(name, id)
+    new = SimLog(name, id)
     new.setLevel(level)
     return new
 
@@ -40,7 +39,7 @@ class Pretty(object, metaclass=abc.ABCMeta):
         return f"<{self.__class__.__name__}({plong})>"
 
     @abc.abstractmethod
-    def __init__(self, level=logging.DEBUG):
+    def __init__(self, level=logging.INFO):
         self._log = log(f"{self.__module__}.{self.__class__.__name__}", level)
 
 

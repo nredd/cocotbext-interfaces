@@ -1,9 +1,10 @@
 import abc
 import collections
+import copy
 import inspect
 import itertools
 import logging
-from typing import List, Optional, Set, Dict, Iterable, Callable, Deque, Awaitable
+from typing import List, Optional, Set, Dict, Iterable, Callable, Deque, Awaitable, Any
 
 import cocotb as c
 import transitions as t
@@ -13,6 +14,7 @@ import transitions.extensions.states as tes
 from cocotb.triggers import ReadOnly, Event, NextTimeStep
 
 import cocotbext.interfaces as ci
+import cocotbext.interfaces.signal as cis
 
 class Behavioral(ten.State):
     """
@@ -28,12 +30,11 @@ class Behavioral(ten.State):
 
 
     @property
-    def conditions(self) -> List: return self._conditions
+    def conditions(self) -> List[Callable[[Any], bool]]: return self._conditions
     @property
-    def reactions(self) -> List: return self._reactions
+    def reactions(self) -> List[Callable]: return self._reactions
     @property
-    def influences(self) -> List: return self._influences
-
+    def influences(self) -> List[cis.Control]: return self._influences
 
     def __init__(self, *args, **kwargs):
         """
@@ -54,8 +55,10 @@ class Behavioral(ten.State):
 
 
 @tes.add_state_features(tes.Tags, tes.Volatile, Behavioral)
-class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TODO: (redd@) Get GraphMachine working
-    # TODO: (redd@) refactor w/ AsyncMachine + async primitives? would improve performance
+class BaseModel(
+    te.MachineFactory.get_predefined(asyncio=True, nested=True, graph=True),
+    ci.Pretty,
+    metaclass=abc.ABCMeta): # TODO: (redd@) Get GraphMachine working
 
 
     @property
@@ -65,9 +68,6 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
     @property
     def reactions(self) -> Set[Callable]:
         return self._reactions
-
-
-
 
     @property
     def primary(self) -> Optional[bool]:
@@ -95,7 +95,6 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
 
     @property
     def nchunks(self) -> int: return max(len(d) for d in self.buff.values()) if self.buff else 0
-
 
     # TODO: (redd@) cache this after init
     # TODO: (redd@) Consider generated Controls wrt influences st only generated caches deleted
@@ -419,54 +418,88 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
         )
 
     def _flush(self) -> Dict[str, List]:
+        """
+        Empty and return contents of `self.buff`; this does not consider busy-lock state.
+        """
         out = {k: list(v) for k,v in self.buff.items()}
         [d.clear() for d in self.buff.values()]
         self.log.debug(f"{self} buffer flushed: {out}")
         return out
 
     def _load(self, txn: Dict[str, Iterable]) -> None:
+        """
+        Load a logical transaction into `self.buff`; this does not consider busy-lock state.
+        """
         for k, v in txn.items():
             self.buff[k].extendleft(v)
         self.log.debug(f"{self} loaded buffer ({txn})")
 
-
-    @c.coroutine
-    async def acquire(self):
+    async def acquire(self) -> None:
+        """
+        Blocking call to wait for busy-lock e.g. for task to initiate behavioral responses.
+        """
         if self.busy:
             await self.busy_event.wait()
         self.busy_event.clear()
         self.busy = True
+        self.log.debug(f"{self} acquired busy-lock")
 
-    def release(self):
+    async def listen(self) -> Optional[Dict]:
+        """
+        Blocking call to wait for busy-lock and return any passed data.
+        """
+        if self.busy:
+            await self.busy_event.wait()
+        data = copy.copy(self.busy_event.data)
+        self.log.debug(f"{self} listened: {data}")
+        return data
+
+    def submit(self, flush: Optional[bool]=None) -> None:
+        """
+        Helper function for `reaction`s to complete processing and optionally submit the contents
+        of `self.buff`.
+        """
+        self.log.debug(f"{self} submitted (flush={flush})")
+        self._release(self._flush() if flush else None)
+
+    def _release(self, data: Optional[Dict] = None) -> None:
+        """
+        Relinquishes control of model's busy-lock; optionally pass data to downstream tasks/coroutines.
+        This assumes that the calling task is the current owner of lock.
+        """
+        if not self.busy:
+            raise ci.InterfaceProtocolError(f"{self} attempted release of non-existent busy-lock")
         self.busy = False
-        self.busy_event.set()
+        self.busy_event.set(data)
+        self.log.debug(f"{self} released busy-lock (data={data})")
 
-    @c.coroutine
     async def input(self, txn: Dict[str, Iterable], trig: Awaitable) -> None:
-        """Blocking call to ingest a[n input] logical transaction."""
+        """Blocking input call to ingest a[n input] logical transaction."""
 
         if set(txn.keys()) != self.itf._txn(primary=self.primary):
             raise ValueError(
                 f"{self} expects input format: {str(self.itf._txn(primary=self.primary))}"
             )
 
+        self.log.debug(f"{self} processing input (trig={trig}, txn={txn})")
+
         await self.acquire()
         self._load(txn)
+
+        size = self.nchunks
 
         while self.busy:
             await trig
             await self._event_loop()
 
-        self._flush() # Make sure buffer is empty
+        self.log.info(f"{self} completed input (size={size})")
 
-        self.log.info(f"{self} completed input")
-
-    @c.coroutine
     async def output(self, trig: Awaitable) -> Dict:
         """
         Blocking call to sample simulation stimuli and process (return) the corresponding
         [output] logical transaction.
         """
+        self.log.debug(f"{self} processing output (trig={trig})")
 
         await self.acquire()
 
@@ -474,21 +507,21 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
             await trig
             await self._event_loop()
 
-        txn = self._flush()
-        self.log.info(f"{self} completed output")
+        txn = self.busy_event.data
+
+        self.log.info(f"{self} completed output: {txn}")
         return txn
 
-    @c.coroutine
     async def _event_loop(self) -> None:
         """
         Main event loop for behavioral models.
         """
-        # TODO: (redd@) clean
+        # TODO: (redd@) clean; use asyncio.get_event_loop ?
         # TODO: (redd@) Could use cocotb Events to standardize waiting; don't block until a reaction is available?
         self.log.debug(f"{self} looping...")
 
-        await ReadOnly() # Need all signals stabilized while model transitions
-        self.trigger('advance')
+        await ReadOnly() # Need stabilized signals to maintain order
+        await self.trigger('advance')
 
         # TODO: (redd@) Reimplement to consider source (shouldn't error out in beginning of sim w/ lots of undefined signals)
         if self.state == 'TOP_NULL':
@@ -540,4 +573,7 @@ class BaseModel(te.HierarchicalMachine, ci.Pretty, metaclass=abc.ABCMeta): # TOD
 
         # TODO: (redd@) make this prettier; default file location?
         # self.get_graph().draw('my_state_diagram.png', prog='dot')
+
+        # Model shall live in its own thread TODO: Fix
+        # self._thread = c.scheduler.add()
         self.log.debug(f"New {self}")

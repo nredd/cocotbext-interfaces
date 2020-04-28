@@ -313,7 +313,7 @@ class PassiveSinkModel(BaseStreamingModel):
             if self.prev_channel is not None:
                 self.buff['channel'].append(self.prev_channel)
 
-            self.release()
+            self._release()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, primary=False, **kwargs)
@@ -375,11 +375,11 @@ class SourceModel(BaseStreamingModel):
         else:
             if self.itf['valid'].instantiated and not self.itf['valid'].generated:
                 self.itf['valid'].drive(False)
-            self.release()
+            self._release()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, primary=True, **kwargs)
- zz
+
 class StreamingDriver(ci.adapters.BaseDriver):
 
     def __init__(self, *args, **kwargs) -> None:

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 """
 Simple script to combine JUnit test results into a single XML file.
 

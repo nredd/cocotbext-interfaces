@@ -7,8 +7,8 @@ setup(
     author_email="redd@google.com",
     packages = find_namespace_packages(include=['cocotbext.*']),
     install_requires = [
-        'cocotb @ git+https://github.com/potentialventures/cocotb@master#egg=cocotb==1.4.*'
-        'transitions[diagrams]'
+        'transitions[diagrams]',
+        'cocotb @ git+https://github.com/potentialventures/cocotb@master#egg=cocotb==1.4.*',
     ],
     python_requires = '>=3.7',
     classifiers = [

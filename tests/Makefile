@@ -44,6 +44,7 @@ ifeq ($(TRAVIS),true)
 endif
 
 
+
 clean:
 	$(foreach TEST, $(REGRESSIONS), $(MAKE) -C test_cases/$(TEST) clean;)
 

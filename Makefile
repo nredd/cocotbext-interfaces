@@ -29,7 +29,7 @@
 
 .PHONY: install
 install:
-	pip3 install -e .
+	pip install -e .
 
 .PHONY: all
 all: install test

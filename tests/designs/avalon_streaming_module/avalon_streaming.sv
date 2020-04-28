@@ -14,8 +14,8 @@ module avalon_streaming (
 logic [7:0] queue[10];
 integer size;
 
-always @ (posedge clk or posedge reset) begin
-    if (reset == 1) begin
+always @ (posedge clk or negedge reset) begin
+    if (reset == 0) begin
         size = 0;
         asi_ready <= 1'b0;
         aso_valid <= 1'b0;

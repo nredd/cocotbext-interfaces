@@ -26,11 +26,10 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
-export SHELL := $(CURDIR)/shell
 
 .PHONY: install
 install:
-	pip install -e .
+	pip3 install -e .
 
 .PHONY: all
 all: install test

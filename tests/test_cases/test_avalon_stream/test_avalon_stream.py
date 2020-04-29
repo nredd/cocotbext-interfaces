@@ -31,7 +31,7 @@ class AvalonSTTB(ci.Pretty):
 
         self.backpressure = cd.BitDriver(self.dut.aso_ready, self.dut.clk)
 
-        self.log.info(f"New testbench: {self} ")
+        self.log.info(f"New testbench: {str(self)} ")
 
     async def initialise(self):
         self.dut.aso_ready <= 1

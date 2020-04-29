@@ -117,7 +117,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             elif not 255 >= max_channel >= 0:
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec defines maxChannel as 0-255. "
-                    f"{self} maxChannel is {max_channel}"
+                    f"{str(self)} maxChannel is {max_channel}"
                 )
             else:
                 self._max_channel = max_channel
@@ -134,7 +134,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             elif not 512 >= data_bits_per_symbol >= 1:
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec defines dataBitsPerSymbol as 1-512. "
-                    f"{self} dataBitsPerSymbol is {data_bits_per_symbol}"
+                    f"{str(self)} dataBitsPerSymbol is {data_bits_per_symbol}"
                 )
             else:
                 self._data_bits_per_symbol = data_bits_per_symbol
@@ -156,7 +156,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec requires that error descriptors "
                     f"be provided as list of strings, one for each error bit. "
-                    f"{self} provided {error_descriptor}"
+                    f"{str(self)} provided {error_descriptor}"
                 )
             else:
                 self._error_descriptor = error_descriptor
@@ -179,7 +179,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
             if self.ready_latency > self.ready_allowance:
                 raise ci.InterfacePropertyError(
                     f"AvalonST spec requires readyLatency <= readyAllowance. "
-                    f"{self} readyLatency is {self.ready_latency}, "
+                    f"{str(self)} readyLatency is {self.ready_latency}, "
                     f"readyAllowance is {self.ready_latency}"
                 )
             self['ready'].allowance = self.ready_allowance
@@ -221,7 +221,7 @@ class StreamingInterface(cia.BaseSynchronousInterface):
                 if len(self['empty'].handle) != req_size:
                     raise ci.InterfacePropertyError(
                         f"AvalonST spec defines empty width as ceil[log_2(<symbols per cycle>)] "
-                        f"= {req_size}. {self} empty width is {len(self['empty'].handle)}"
+                        f"= {req_size}. {str(self)} empty width is {len(self['empty'].handle)}"
                     )
 
             if empty_within_packet is None:
@@ -242,7 +242,7 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
     def itf(self) -> StreamingInterface: return self._itf
 
     @ci.decorators.reaction('reset', True)
-    def reset(self):
+    async def reset(self):
         self.in_pkt = False if self.itf.packets else None
 
     @abc.abstractmethod
@@ -257,15 +257,15 @@ class BaseStreamingModel(cia.BaseSynchronousModel, metaclass=abc.ABCMeta):
 class PassiveSinkModel(BaseStreamingModel):
 
     @ci.decorators.reaction('reset', True)
-    def reset(self):
-        self.log.debug(f"{self} in reset")
+    async def reset(self):
+        self.log.debug(f"{str(self)} in reset")
         self.prev_channel = None
 
     # TODO: (redd@) Rewrite w filters
     @ci.decorators.reaction('valid', True, force=True)
-    def valid_cycle(self) -> None:
+    async def valid_cycle(self) -> None:
 
-        self.log.debug(f"{self} in valid_cycle")
+        self.log.debug(f"{str(self)} in valid_cycle")
         channel = self.itf['channel'].capture() if self.itf['channel'].instantiated else None
         data = self.itf['data'].capture() if self.itf['data'].instantiated else None
         empty = self.itf['empty'].capture() if self.itf['empty'].instantiated else None
@@ -337,8 +337,8 @@ class SourceModel(BaseStreamingModel):
     # TODO: (redd@) Rewrite w filters
 
     @ci.decorators.reaction('valid', False, smode=ct.ReadWrite)
-    def assert_valid(self) -> None:
-        self.log.debug(f"{self} in assert_valid cycle")
+    async def assert_valid(self) -> None:
+        self.log.debug(f"{str(self)} in assert_valid cycle")
 
         # Unforced reaction, so must manually assert valid if not generated
         if not self.itf['valid'].generated:
@@ -347,8 +347,8 @@ class SourceModel(BaseStreamingModel):
             self.itf['startofpacket'].drive(True)
 
     @ci.decorators.reaction('valid', True, force=True, smode=ct.ReadWrite)
-    def valid_cycle(self) -> None:
-        self.log.debug(f"{self} in valid cycle")
+    async def valid_cycle(self) -> None:
+        self.log.debug(f"{str(self)} in valid cycle")
 
         channel = self.buff['channel'][-1] if self.itf['channel'].instantiated else None
         data = self.buff['data'].pop() if self.itf['data'].instantiated else None

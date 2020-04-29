@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional, Union, Awaitable
 
 import cocotb as c
 import cocotb.triggers as ct
@@ -8,10 +8,9 @@ import cocotbext.interfaces as ci
 
 class reaction(ci.Pretty):
     """
-    Decorator for specifying methods (bound to instances which inherit `BaseModel`)
+    Decorator for specifying coroutines that are  `BaseModel`)
     as behavioral reactions.
     """
-
 
     @property
     def cname(self) -> str: return self._cname
@@ -35,13 +34,13 @@ class reaction(ci.Pretty):
         self._force = force
         self._smode = smode
 
-    def __call__(self, f):
+    def __call__(self, f: Awaitable):
         f.reaction = True
         f.cname = self.cname
         f.val = self.val
         f.force = self.force
         f.smode = self.smode
-        self.log.info(f"{self} detected: {repr(f)}")
+        self.log.info(f"{str(self)} detected: {f}")
         return f
 
 
@@ -59,7 +58,7 @@ class filter(object):
     def __call__(self, f):
         f.filter = True
         f.cname = self.cname
-        _LOG.info(f"{self} detected: {repr(f)}")
+        _LOG.info(f"{str(self)} detected: {repr(f)}")
         return f
 
     # TODO: (redd@) Deprecate this

@@ -29,8 +29,6 @@ class Signal(ci.Pretty):
     # allowed types for logical_type pulled from handle.ModifiableObject
     _allowed = Union[bool, int, BinaryValue]
 
-
-
     # Read-only
     @property
     def name(self):
@@ -78,7 +76,7 @@ class Signal(ci.Pretty):
 
         self._handle = val
 
-        self.log.debug(f"{self} set handle: {repr(val)}")
+        self.log.debug(f"{str(self)} set handle: {repr(val)}")
 
     @property
     def filter(self):
@@ -88,17 +86,17 @@ class Signal(ci.Pretty):
     def filter(self, val: Callable):
         # TODO: (redd@) Validation
         self._filter = val
-        self.log.debug(f"{self} set filter: {repr(val)}")
+        self.log.debug(f"{str(self)} set filter: {repr(val)}")
 
 
     def capture(self) -> _allowed:
 
         if not self.instantiated:
-            raise AttributeError(f"Signal ({self}) not instantiated")
+            raise AttributeError(f"Signal ({str(self)}) not instantiated")
 
         val = self.handle.value
         if not val.is_resolvable:
-            raise ci.InterfaceProtocolError(f"Signal ({self}) is unresolvable")
+            raise ci.InterfaceProtocolError(f"Signal ({str(self)}) is unresolvable")
 
         if not self.logic_active_high:
             val.assign(~val.integer & len(self.handle))
@@ -111,16 +109,16 @@ class Signal(ci.Pretty):
         elif self.logical_type == bool:
             val = bool(val.integer)
 
-        self.log.debug(f"{self} captured sample: {repr(val)}")
+        self.log.debug(f"{str(self)} captured sample: {repr(val)}")
         return val
 
     def drive(self, val: _allowed) -> None:
         if not self.instantiated:
-            raise AttributeError(f"Signal ({self}) not instantiated")
+            raise AttributeError(f"Signal ({str(self)}) not instantiated")
 
         if not isinstance(val, self.logical_type):
             raise TypeError(
-                f"Signal ({self}) has logical "
+                f"Signal ({str(self)}) has logical "
                 f"type {self.logical_type} but was provided {type(val)}"
             )
 
@@ -135,7 +133,7 @@ class Signal(ci.Pretty):
 
         val = val if self.logical_type != bool else int(val)
         self.handle <= val
-        self.log.debug(f"{self} driven to: {repr(val)}")
+        self.log.debug(f"{str(self)} driven to: {repr(val)}")
 
     def __init__(self,
                  name: str, *args,
@@ -179,7 +177,7 @@ class Signal(ci.Pretty):
         self._handle = None
         self._filter = None
 
-        self.log.debug(f"New {self}")
+        self.log.debug(f"New {repr(self)}")
 
 
 
@@ -218,7 +216,7 @@ class Control(Signal):
         if not self._max_allowance >= val >= 0:
             raise ValueError(f"Outside defined range")
         self._allowance = val
-        self.log.debug(f"{self} set allowance: {val}")
+        self.log.debug(f"{str(self)} set allowance: {val}")
 
     @property
     def latency(self):
@@ -229,7 +227,7 @@ class Control(Signal):
         if not self._max_latency >= val >= 0:
             raise ValueError(f"Outside defined range")
         self._latency = val
-        self.log.debug(f"{self} set latency: {val}")
+        self.log.debug(f"{str(self)} set latency: {val}")
 
     @property
     def precedence(self):
@@ -238,7 +236,7 @@ class Control(Signal):
     @precedence.setter
     def precedence(self, val: int):
         self._precedence = val
-        self.log.debug(f"{self} set precedence: {val}")
+        self.log.debug(f"{str(self)} set precedence: {val}")
 
     @property
     def generator(self):
@@ -250,7 +248,7 @@ class Control(Signal):
             raise AttributeError(f"Cannot manipulate non-instantiated Control signal")
         self._generator = val
         self.clear()
-        self.log.debug(f"{self} set generator: {repr(val)}")
+        self.log.debug(f"{str(self)} set generator: {repr(val)}")
 
 
     def next(self) -> bool:
@@ -324,7 +322,7 @@ class Control(Signal):
 
         if any(w > 1 for w in self.widths) or self.logical_type != bool:
             raise NotImplementedError(
-                f"Control signals ({self}) with more than "
+                f"Control signals ({str(self)}) with more than "
                 f"two (logical) values are not yet supported"
             )
 

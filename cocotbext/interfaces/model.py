@@ -4,6 +4,7 @@ import copy
 import inspect
 import itertools
 import logging
+import warnings
 from typing import List, Optional, Set, Dict, Iterable, Callable, Deque, Awaitable, Any
 
 import cocotb as c
@@ -60,7 +61,6 @@ class BaseModel(
     ci.Pretty,
     metaclass=abc.ABCMeta): # TODO: (redd@) Get GraphMachine working
 
-
     @property
     def itf(self) -> ci.core.BaseInterface:
         return self._itf
@@ -80,14 +80,16 @@ class BaseModel(
     @property
     def busy(self) -> bool:
         """
-        Returns True if model is currently processing contents of `self.buff`, False if
-        model is finished, and, None if model is idle.
+        Asserted while model is engaged, i.e. `self._busy` asserted and `self.lock` unset.
         """
-        return self._busy
+        return self._busy and not self.lock.is_set()
 
-    @busy.setter
-    def busy(self, val: bool) -> None:
-        self._busy = val
+    @property
+    def lock(self) -> Event:
+        """
+        Synchronizes access to model across coroutines.
+        """
+        return self._lock
 
     @property
     def buff(self) -> Dict[str, Deque]:
@@ -337,7 +339,7 @@ class BaseModel(
             # Control-nest's influences are all other instantiated Controls along/above its precedence level
             cond = {}
             for c in controls:
-                self.log.debug(f"{self} preprocessing: {str(c)}")
+                self.log.debug(f"{str(self)} preprocessing: {str(c)}")
                 match = next((r for r in self.reactions if r.cname == c.name and r.force), None)
                 if c.instantiated:
                     cond[c.name] = {
@@ -346,7 +348,7 @@ class BaseModel(
                         'flow': lambda: c.capture() in c.flow_vals
                     }
                 elif match is not None: # Forced reactions create 'virtual' precedence levels
-                    self.log.debug(f"{self} inserting forced reaction: {str(match)}")
+                    self.log.debug(f"{str(self)} inserting forced reaction: {str(match)}")
                     for f in flatten(get_flowers(bh)):
                         f['tags'].remove('flow')
                         f['initial'] = c.name.upper()
@@ -364,7 +366,7 @@ class BaseModel(
 
             if cond: # Elaborate behavior of instantiated Controls, if any
                 for f in flatten(get_flowers(bh)):
-                    self.log.debug(f"{self} adding to flower ({f})")
+                    self.log.debug(f"{str(self)} adding to flower ({f})")
                     f['tags'].remove('flow')
                     f['transitions'] = []
 
@@ -419,108 +421,110 @@ class BaseModel(
 
     def _flush(self) -> Dict[str, List]:
         """
-        Empty and return contents of `self.buff`; this does not consider busy-lock state.
+        Empty and return contents of `self.buff`; does not consider lock state.
         """
         out = {k: list(v) for k,v in self.buff.items()}
         [d.clear() for d in self.buff.values()]
-        self.log.debug(f"{self} buffer flushed: {out}")
+        self.log.debug(f"{str(self)} buffer flushed: {out}")
         return out
 
     def _load(self, txn: Dict[str, Iterable]) -> None:
         """
-        Load a logical transaction into `self.buff`; this does not consider busy-lock state.
+        Load a logical transaction into `self.buff`; does not consider lock state.
         """
         for k, v in txn.items():
             self.buff[k].extendleft(v)
-        self.log.debug(f"{self} loaded buffer ({txn})")
+        self.log.debug(f"{str(self)} loaded buffer ({txn})")
 
     async def acquire(self) -> None:
         """
-        Blocking call to wait for busy-lock e.g. for task to initiate behavioral responses.
+        Blocking call to wait for, clear `self.lock`.
         """
-        if self.busy:
-            await self.busy_event.wait()
-        self.busy_event.clear()
-        self.busy = True
-        self.log.debug(f"{self} acquired busy-lock")
+        self.log.debug(f"{str(self)} waiting for lock...")
+        await self.lock.wait()
+        self.lock.clear()
+        self._busy = True
+        self.log.debug(f"{str(self)} acquired lock")
+
+        if self.nchunks:
+            warnings.warn(f"{str(self)} buffer non-empty (size={self.nchunks})")
+            self._flush()
 
     async def listen(self) -> Optional[Dict]:
         """
-        Blocking call to wait for busy-lock and return any passed data.
+        Blocking call to wait for `self.lock` and return any passed data.
         """
-        if self.busy:
-            await self.busy_event.wait()
-        data = copy.copy(self.busy_event.data)
-        self.log.debug(f"{self} listened: {data}")
+        self.log.debug(f"{str(self)} listening...")
+        await self.lock.wait()
+        data = copy.copy(self.lock.data)
+        self.log.debug(f"{str(self)} heard: {data}")
         return data
 
-    def submit(self, flush: Optional[bool]=None) -> None:
+    def notify(self, flush: Optional[bool]=None) -> None:
         """
-        Helper function for `reaction`s to complete processing and optionally submit the contents
-        of `self.buff`.
+        Helper function for `reaction`s to complete processing; optionally submit the contents
+        of `self.buff` via `self.lock`.
         """
-        self.log.debug(f"{self} submitted (flush={flush})")
+        self.log.debug(f"{str(self)} submitted (flush={flush})")
         self._release(self._flush() if flush else None)
 
     def _release(self, data: Optional[Dict] = None) -> None:
         """
-        Relinquishes control of model's busy-lock; optionally pass data to downstream tasks/coroutines.
+        Relinquishes control of `self.lock`; optionally pass data to downstream coroutines.
         This assumes that the calling task is the current owner of lock.
         """
         if not self.busy:
-            raise ci.InterfaceProtocolError(f"{self} attempted release of non-existent busy-lock")
-        self.busy = False
-        self.busy_event.set(data)
-        self.log.debug(f"{self} released busy-lock (data={data})")
+            raise ci.InterfaceProtocolError(f"{str(self)} attempted release of non-existent busy-lock")
+        self._busy = False
+        self.lock.set(data)
+        self.log.debug(f"{str(self)} released lock (data={data})")
 
     async def input(self, txn: Dict[str, Iterable], trig: Awaitable) -> None:
         """Blocking input call to ingest a[n input] logical transaction."""
 
         if set(txn.keys()) != self.itf._txn(primary=self.primary):
             raise ValueError(
-                f"{self} expects input format: {str(self.itf._txn(primary=self.primary))}"
+                f"{str(self)} expects input format: {str(self.itf._txn(primary=self.primary))}"
             )
 
-        self.log.debug(f"{self} processing input (trig={trig}, txn={txn})")
+        self.log.debug(f"{str(self)} received input (txn={txn})")
 
         await self.acquire()
         self._load(txn)
-
-        size = self.nchunks
-
-        while self.busy:
-            await trig
-            await self._event_loop()
-
-        self.log.info(f"{self} completed input (size={size})")
+        await self._process(trig)
 
     async def output(self, trig: Awaitable) -> Dict:
         """
         Blocking call to sample simulation stimuli and process (return) the corresponding
         [output] logical transaction.
         """
-        self.log.debug(f"{self} processing output (trig={trig})")
-
         await self.acquire()
+        await self._process(trig)
+        txn = self.lock.data
+        self.log.debug(f"{str(self)} received output (txn={txn})")
+        return txn
+
+    async def _process(self, trig: Awaitable) -> None:
+        if not self.busy:
+            raise ci.InterfaceProtocolError(f"{str(self)} not busy")
+
+        self.log.debug(f"{str(self)} processing (trig={trig})...")
 
         while self.busy:
             await trig
             await self._event_loop()
 
-        txn = self.busy_event.data
-
-        self.log.info(f"{self} completed output: {txn}")
-        return txn
+        self.log.debug(f"{str(self)} processed!")
 
     async def _event_loop(self) -> None:
         """
         Main event loop for behavioral models.
         """
         # TODO: (redd@) clean; use asyncio.get_event_loop ?
-        # TODO: (redd@) Could use cocotb Events to standardize waiting; don't block until a reaction is available?
-        self.log.debug(f"{self} looping...")
+        # TODO: (redd@) don't block until a reaction is available?
+        self.log.debug(f"{str(self)} looping...")
 
-        await ReadOnly() # Need stabilized signals to maintain order
+        #await ReadOnly() # Stabilize signals prior to sampling
         await self.trigger('advance')
 
         # TODO: (redd@) Reimplement to consider source (shouldn't error out in beginning of sim w/ lots of undefined signals)
@@ -532,14 +536,13 @@ class BaseModel(
         #     self.itf[c].clear()
 
         for fn in self.get_state(self.state).reactions:
-            if fn.smode != ReadOnly:
-                await NextTimeStep()
-                await fn.smode()
+            # if fn.smode != ReadOnly:
+            #     await NextTimeStep()
+            #     await fn.smode()
 
-            fn(self) # TODO: (redd@) fix method binding
+            await fn(self) # TODO: (redd@) fix method binding
 
-        self.log.debug(f"{self} looped!")
-
+        self.log.debug(f"{str(self)} looped!")
 
     @abc.abstractmethod
     def __init__(self, itf: ci.core.BaseInterface, primary: Optional[bool] = None) -> None:
@@ -553,8 +556,8 @@ class BaseModel(
 
         self._itf = itf
 
-        self.busy = False
-        self.busy_event = Event(f"{self.__class__.__name__}_busy")
+        self._busy = False
+        self._lock = Event(f"{self.__class__.__name__}_busy")
 
         self._primary = primary
         self._buff = {k: collections.deque() for k in self.itf._txn(primary=self.primary)}
@@ -576,4 +579,4 @@ class BaseModel(
 
         # Model shall live in its own thread TODO: Fix
         # self._thread = c.scheduler.add()
-        self.log.debug(f"New {self}")
+        self.log.debug(f"New {repr(self)}")

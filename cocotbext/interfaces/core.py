@@ -41,7 +41,6 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
     def ceiling(self) -> Optional[Set[ci.signal.Control]]:
         return set(c for c in self.controls if c.precedence == self.pmax)
 
-
     @property
     def filters(self) -> Set[ci.decorators.filter]:
         return self._filters
@@ -92,9 +91,9 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
         for s in spec:
             if not hasattr(self.entity, alias(s)):
                 if s.required:
-                    raise ci.InterfaceProtocolError(f"{self} missing required signal: {str(s)}")
+                    raise ci.InterfaceProtocolError(f"{str(self)} missing required signal: {str(s)}")
 
-                self.log.info(f"{self} ignoring optional: {str(s)}")
+                self.log.info(f"{str(self)} ignoring optional: {str(s)}")
             elif not s.instantiated:
                 s.handle = getattr(self.entity, alias(s))
 
@@ -103,7 +102,7 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
                         s.filter = f
 
             self._signals.add(s)
-            self.log.debug(f"{self} applied: {str(spec)}")
+            self.log.debug(f"{str(self)} applied: {str(spec)}")
 
     def _txn(self, primary: Optional[bool] = None) -> Set[str]:
         """
@@ -122,7 +121,7 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
         if val in self.filters:
             warnings.warn(f"Duplicate filter received; overwriting {repr(val)}")
         self._filters.add(val)
-        self.log.info(f"{self} applied: {repr(val)}")
+        self.log.info(f"{str(self)} applied: {repr(val)}")
 
 
 
@@ -167,4 +166,4 @@ class BaseInterface(ci.Pretty, metaclass=abc.ABCMeta):
             bus_separator=bus_separator
         )
 
-        self.log.info(f"New {self}")
+        self.log.info(f"New {repr(self)}")

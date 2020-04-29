@@ -36,7 +36,7 @@ class Clock(ci.core.BaseInterface):
         # TODO: (redd@) is associatedDirectClock needed? could be used to specify _clock domains
         if rate is not None and not 2 ** 32 - 1 >= rate >= 0:
             raise ci.InterfacePropertyError(
-                f"{self} spec. defines clockRate as 0-4294967295, was provided {rate}"
+                f"{str(self)} spec. defines clockRate as 0-4294967295, was provided {rate}"
             )
 
         self._rate = rate
@@ -86,7 +86,6 @@ class BaseSynchronousInterface(ci.core.BaseInterface, metaclass=abc.ABCMeta):
     def clock(self) -> c.handle.SimHandleBase: return self._clock['clk'].handle
     @property
     def reset(self) -> c.handle.SimHandleBase: return self._reset['reset'].handle
-
 
     @abc.abstractmethod
     def __init__(self, entity, *args, **kwargs) -> None:

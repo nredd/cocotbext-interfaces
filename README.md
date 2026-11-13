@@ -111,8 +111,9 @@ make test       # install, tests/ and examples/, then bin/combine_results.py
 make -C tests   # tests only
 ```
 
-`make test` needs a working simulator and cocotb. Without them, `tests/Makefile` calls
-`cocotb-config` at parse time, so it must be on `PATH`.
+`make test` needs a working simulator and cocotb. The design Makefile in
+`tests/designs/avalon_streaming_module/` calls `cocotb-config` when make parses it, so
+`cocotb-config` must be on `PATH`.
 
 `bin/combine_results.py` merges JUnit XML results. The `examples/` directory has only a
 Makefile and no examples.
@@ -143,4 +144,4 @@ The bundled design is `tests/designs/avalon_streaming_module/avalon_streaming.sv
 
 This project depends on cocotb. The `LICENSE` file is cocotb's Revised BSD license text with
 cocotb's copyright notices (Potential Ventures Ltd, SolarFlare Communications Inc). Keep it with
-any copy of this repo. The Makefiles carry the same notices.
+any copy of this repo. The Makefiles carry cocotb copyright notices too.

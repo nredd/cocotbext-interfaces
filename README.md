@@ -118,7 +118,8 @@ make -C tests   # tests only
 
 `bin/combine_results.py` merges JUnit XML results. It imports `xml.etree.cElementTree`, which
 was removed in Python 3.9, so `make test` fails at that last step on 3.9 or newer.
-`tests/Makefile` sets `PYTHONWARNINGS=error`, so any library warning fails the bundled tests.
+`tests/Makefile` sets `PYTHONWARNINGS=error` (except `distutils` deprecations), so other
+warnings fail the bundled tests.
 
 The `examples/` directory has only a Makefile and no examples.
 

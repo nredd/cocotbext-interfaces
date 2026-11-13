@@ -100,7 +100,8 @@ Checked when the interface is constructed:
 `bus_name`, `bus_separator` (default `"_"`) and `log_level` are also accepted. `family` is not,
 because the Avalon base class sets it and passing it again raises `TypeError`.
 
-`get_descriptors(mask)` returns the descriptor strings for set error bits.
+`get_descriptors(mask)` returns the descriptor strings for set error bits, or `None` when no
+`error_descriptor` is set.
 `mask_data(data, empty)` slices `empty` bits off the data word. It does not scale by symbol
 width, see Known issues.
 
@@ -115,8 +116,11 @@ make -C tests   # tests only
 `tests/designs/avalon_streaming_module/` calls `cocotb-config` when make parses it, so
 `cocotb-config` must be on `PATH`.
 
-`bin/combine_results.py` merges JUnit XML results. The `examples/` directory has only a
-Makefile and no examples.
+`bin/combine_results.py` merges JUnit XML results. It imports `xml.etree.cElementTree`, which
+was removed in Python 3.9, so `make test` fails at that last step on 3.9 or newer.
+`tests/Makefile` sets `PYTHONWARNINGS=error`, so any library warning fails the bundled tests.
+
+The `examples/` directory has only a Makefile and no examples.
 
 The bundled design is `tests/designs/avalon_streaming_module/avalon_streaming.sv`. It is a
 10-entry FIFO with 8-bit data.
@@ -144,4 +148,4 @@ The bundled design is `tests/designs/avalon_streaming_module/avalon_streaming.sv
 
 This project depends on cocotb. The `LICENSE` file is cocotb's Revised BSD license text with
 cocotb's copyright notices (Potential Ventures Ltd, SolarFlare Communications Inc). Keep it with
-any copy of this repo. The Makefiles carry cocotb copyright notices too.
+any copy of this repo. The root, `examples/` and `tests/` Makefiles carry cocotb copyright notices too.
